@@ -53,9 +53,9 @@ did.bin
 *.session
 
 # Sensitive data (will be handled separately)
-# webullkey.txt - This contains sensitive credentials
-# webull_config.json - Contains API keys
-# webull_config_live.json - Contains live trading config
+webullkey.txt - This contains sensitive credentials
+webull_config.json - Contains API keys
+webull_config_live.json - Contains live trading config
 
 # Temporary files
 *.tmp
