@@ -1,0 +1,10 @@
+{
+  "app_key": "your_app_key_here",
+  "app_secret": "your_app_secret_here",
+  "account_id": "your_account_id_here",
+  "username": "your_username_here",
+  "password": "your_password_here",
+  "rebalance_threshold": 0.05,
+  "min_trade_amount": 100,
+  "dry_run": true
+} 
