@@ -1,6 +1,12 @@
-webull==0.6.0
-yfinance==0.2.36
-pandas==2.0.3
-numpy==1.24.3
-requests==2.31.0
-urllib3==2.0.7 
+# Docker環境用の依存関係
+grpcio==1.51.1
+webull-python-sdk-trade==0.1.11
+webull-python-sdk-core==0.1.11
+webull-python-sdk-trade-events-core==0.1.11
+webull-python-sdk-mdata==0.1.11
+pandas
+numpy
+requests
+urllib3
+yfinance
+webull==0.6.0 
