@@ -1210,7 +1210,7 @@ class WebullCompleteRebalancer:
         if trades:
             df = pd.DataFrame(trades)
             df['timestamp'] = datetime.now()
-            df.to_csv('trades.csv', mode='a', header=not pd.io.common.file_exists('trades.csv'), index=False)
+            df.to_csv('data/trades.csv', mode='a', header=not pd.io.common.file_exists('data/trades.csv'), index=False)
             self.logger.info("取引履歴をCSVに保存しました")
     
     def get_portfolio_summary(self):
