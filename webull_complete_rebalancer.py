@@ -349,33 +349,80 @@ class WebullCompleteRebalancer:
             return None
     
     def get_current_positions(self):
-        """現在のポジションを取得（リトライ機能付き）"""
+        """現在のポジションを取得（リトライ機能付き）- Account Positions（v2）API使用"""
         try:
             def api_call():
-                return self.api.account.get_account_position(self.account_id)
+                return self.api.account_v2.get_account_position(self.account_id)
             
             response = self.api_call_with_retry(api_call, max_retries=2, api_name="get_account_position")
             
             if response and response.status_code == 200:
                 position_data = json.loads(response.text)
-                holdings = position_data.get('holdings', [])
+                self.logger.info(f"ポジション取得成功（v2 API）")
                 
-                self.logger.info(f"現在のポジション数: {len(holdings)}")
+                # レスポンス構造をデバッグ
+                self.logger.info(f"APIレスポンス構造: {json.dumps(position_data, indent=2)}")
                 
                 positions = []
-                for holding in holdings:
-                    symbol = holding.get('ticker', {}).get('symbol')
-                    quantity = float(holding.get('quantity', 0))
-                    market_value = float(holding.get('market_value', 0))
-                    instrument_id = holding.get('instrument_id')
-                    
-                    if symbol and quantity > 0:
-                        positions.append({
-                            'symbol': symbol,
-                            'quantity': quantity,
-                            'market_value': market_value,
-                            'instrument_id': instrument_id
-                        })
+                
+                # v2 APIのレスポンス構造に対応
+                if 'data' in position_data:
+                    data = position_data['data']
+                    if isinstance(data, list):
+                        # 配列形式の場合
+                        for position in data:
+                            items = position.get('items', [])
+                            for item in items:
+                                symbol = item.get('symbol')
+                                quantity = float(item.get('quantity', 0))
+                                available_quantity = float(item.get('available_quantity', 0))
+                                cost_price = float(item.get('cost_price', 0))
+                                unrealized_profit_loss = float(item.get('unrealized_profit_loss', 0))
+                                
+                                if symbol and quantity > 0:
+                                    positions.append({
+                                        'symbol': symbol,
+                                        'quantity': quantity,
+                                        'available_quantity': available_quantity,
+                                        'cost_price': cost_price,
+                                        'unrealized_profit_loss': unrealized_profit_loss,
+                                        'market_value': quantity * cost_price + unrealized_profit_loss
+                                    })
+                    elif isinstance(data, dict):
+                        # 辞書形式の場合
+                        items = data.get('items', [])
+                        for item in items:
+                            symbol = item.get('symbol')
+                            quantity = float(item.get('quantity', 0))
+                            available_quantity = float(item.get('available_quantity', 0))
+                            cost_price = float(item.get('cost_price', 0))
+                            unrealized_profit_loss = float(item.get('unrealized_profit_loss', 0))
+                            
+                            if symbol and quantity > 0:
+                                positions.append({
+                                    'symbol': symbol,
+                                    'quantity': quantity,
+                                    'available_quantity': available_quantity,
+                                    'cost_price': cost_price,
+                                    'unrealized_profit_loss': unrealized_profit_loss,
+                                    'market_value': quantity * cost_price + unrealized_profit_loss
+                                })
+                else:
+                    # 従来の構造に対応
+                    holdings = position_data.get('holdings', [])
+                    for holding in holdings:
+                        symbol = holding.get('ticker', {}).get('symbol')
+                        quantity = float(holding.get('quantity', 0))
+                        market_value = float(holding.get('market_value', 0))
+                        instrument_id = holding.get('instrument_id')
+                        
+                        if symbol and quantity > 0:
+                            positions.append({
+                                'symbol': symbol,
+                                'quantity': quantity,
+                                'market_value': market_value,
+                                'instrument_id': instrument_id
+                            })
                 
                 self.logger.info(f"有効なポジション: {positions}")
                 return positions
@@ -1002,38 +1049,38 @@ class WebullCompleteRebalancer:
             else:
                 limit_price = current_price * 0.99  # 売り注文は少し安め
             
-            # 注文パラメータを構築
-            stock_order = {
-                "account_id": self.account_id,
-                "stock_order": {
-                    "client_order_id": uuid.uuid4().hex,
-                    "side": "BUY" if action == "BUY" else "SELL",
-                    "tif": "DAY",
-                    "extended_hours_trading": False,
-                    "instrument_id": instrument_id,
-                    "order_type": "LIMIT",
-                    "limit_price": f"{limit_price:.2f}",
-                    "qty": str(quantity),
-                    "trade_currency": "USD",
-                    "account_tax_type": "SPECIFIC"
-                }
+            # 注文パラメータを構築（v2 API仕様）
+            client_order_id = uuid.uuid4().hex
+            new_orders = {
+                "client_order_id": client_order_id,
+                "symbol": symbol,
+                "instrument_type": "EQUITY",
+                "market": "US",  # 米国市場
+                "order_type": "LIMIT",
+                "limit_price": f"{limit_price:.2f}",
+                "quantity": str(quantity),
+                "support_trading_session": "N",  # 通常取引時間のみ
+                "side": "BUY" if action == "BUY" else "SELL",
+                "time_in_force": "DAY",
+                "entrust_type": "QTY",
+                "account_tax_type": "GENERAL"
             }
             
-            self.logger.info(f"注文パラメータ: {stock_order}")
+            self.logger.info(f"注文パラメータ: {new_orders}")
             
-            # リトライ機能付きで注文を発注
+            # リトライ機能付きで注文を発注（v2 API）
             def api_call():
-                return self.api.order.place_order_v2(stock_order['account_id'], stock_order['stock_order'])
+                return self.api.order_v2.place_order(account_id=self.account_id, new_orders=new_orders)
             
             response = self.api_call_with_retry(api_call, max_retries=3, delay=2, api_name="place_order_v2")
             
             if response and response.status_code == 200:
                 order_data = json.loads(response.text)
-                self.logger.info(f"注文発注成功: {order_data}")
+                self.logger.info(f"注文発注成功（v2 API）: {order_data}")
                 
-                # 注文IDを取得して監視を開始
-                order_id = order_data.get('data', {}).get('order_id')
-                client_order_id = order_data.get('data', {}).get('client_order_id')
+                # 注文IDを取得して監視を開始（v2 API仕様）
+                order_id = order_data.get('order_id')
+                client_order_id = order_data.get('client_order_id')
                 
                 if order_id:
                     self.logger.info(f"注文ID: {order_id}")
@@ -1066,7 +1113,7 @@ class WebullCompleteRebalancer:
         try:
             self.logger.info(f"注文監視開始: {order_id} ({symbol})")
             
-            # リトライ機能付きで注文詳細を取得
+            # リトライ機能付きで注文詳細を取得（v2 API）
             def api_call():
                 return self.api.order_v2.get_order_detail(order_id)
             
@@ -1076,8 +1123,8 @@ class WebullCompleteRebalancer:
                 order_detail = json.loads(response.text)
                 self.logger.info(f"注文詳細: {order_detail}")
                 
-                # 注文ステータスを確認
-                status = order_detail.get('data', {}).get('status')
+                # 注文ステータスを確認（v2 API仕様）
+                status = order_detail.get('status')
                 self.logger.info(f"注文ステータス: {status}")
                 
                 if status == 'FILLED':
@@ -1107,7 +1154,7 @@ class WebullCompleteRebalancer:
                 orders_data = json.loads(response.text)
                 self.logger.info(f"注文履歴: {orders_data}")
                 
-                # 未約定注文のみをフィルタリング
+                # 未約定注文のみをフィルタリング（v2 API仕様）
                 open_orders = []
                 orders = orders_data.get('data', [])
                 
