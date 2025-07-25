@@ -1091,7 +1091,7 @@ class WebullCompleteRebalancer:
                     self.logger.info(f"注文ID: {order_id}")
                     self.logger.info(f"クライアント注文ID: {client_order_id}")
                     # 注文の監視を開始
-                    self.monitor_order(order_id, symbol)
+                    self.monitor_order(order_id, symbol, client_order_id)
                 
                 return True
             else:
@@ -1113,14 +1113,18 @@ class WebullCompleteRebalancer:
             self.logger.error(f"注文発注エラー: {e}")
             return False
     
-    def monitor_order(self, order_id, symbol):
+    def monitor_order(self, order_id, symbol, client_order_id=None):
         """注文の監視（リトライ機能付き）"""
         try:
             self.logger.info(f"注文監視開始: {order_id} ({symbol})")
             
             # リトライ機能付きで注文詳細を取得（v2 API）
             def api_call():
-                return self.api.order_v2.get_order_detail(order_id)
+                # Webull API v2では、account_id、client_order_idまたはorder_idが必要
+                if client_order_id:
+                    return self.api.order_v2.get_order_detail(account_id=self.account_id, client_order_id=client_order_id)
+                else:
+                    return self.api.order_v2.get_order_detail(account_id=self.account_id, order_id=order_id)
             
             response = self.api_call_with_retry(api_call, max_retries=2, delay=1, api_name="get_order_detail")
             
@@ -1258,6 +1262,13 @@ class WebullCompleteRebalancer:
         """完全なポートフォリオリバランシングを実行（改善版）"""
         try:
             self.logger.info("=== 完全なポートフォリオリバランシング開始（改善版） ===")
+            
+            # 保守的価格マージンの設定を表示
+            conservative_margin = self.config.get('trading_settings', {}).get('conservative_price_margin', 0.0)
+            if conservative_margin > 0:
+                self.logger.info(f"保守的価格マージン: {conservative_margin*100:.1f}%")
+            else:
+                self.logger.info("保守的価格マージン: なし (0%)")
             
             # ステップ1: 現在のポジションと残高をチェック
             self.logger.info("📊 ステップ1: 現在のポジションと残高をチェック")
@@ -1419,11 +1430,16 @@ class WebullCompleteRebalancer:
                 self.logger.error(f"{symbol} の基本価格取得失敗")
                 return None
             
-            # 保守的マージン（1%）を適用
-            conservative_margin = 0.01  # 1%
+            # 設定ファイルから保守的マージンを取得（デフォルト: 0%）
+            conservative_margin = self.config.get('trading_settings', {}).get('conservative_price_margin', 0.0)
+            
+            # 保守的価格を計算
             conservative_price = base_price * (1 + conservative_margin)
             
-            self.logger.info(f"{symbol} 価格: ${base_price:.2f} → 保守的価格: ${conservative_price:.2f} (+{conservative_margin*100:.1f}%)")
+            if conservative_margin > 0:
+                self.logger.info(f"{symbol} 価格: ${base_price:.2f} → 保守的価格: ${conservative_price:.2f} (+{conservative_margin*100:.1f}%)")
+            else:
+                self.logger.info(f"{symbol} 価格: ${base_price:.2f} (保守的マージンなし)")
             
             return {
                 'base_price': base_price,

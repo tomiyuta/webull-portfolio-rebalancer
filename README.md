@@ -39,20 +39,53 @@ setup_webullbot.bat
 
 ### 3. 設定ファイルの編集
 
-`webull_config_with_allocation.json`を編集して、Webull APIの認証情報を設定：
+`webull_config_with_allocation.json`を編集して、Webull APIの認証情報と取引設定を設定：
 
 ```json
 {
-  "webull": {
-    "username": "your_username",
-    "password": "your_password",
-    "device_id": "your_device_id",
-    "account_id": "your_account_id"
+  "username": "your_username",
+  "password": "your_password",
+  "app_key": "your_app_key",
+  "app_secret": "your_app_secret",
+  "account_id": "your_account_id",
+  "account_number": "your_account_number",
+  "subscription_id": "your_subscription_id",
+  "user_id": "your_user_id",
+  "portfolio_config_file": "portfolio.csv",
+  "dry_run": false,
+  "api_settings": {
+    "max_retries": 3,
+    "retry_delay": 1,
+    "rate_limit_delay": 2
   },
-  "dry_run": true,
-  "portfolio_config_file": "portfolio.csv"
+  "trading_settings": {
+    "price_slippage": 0.01,
+    "min_order_amount": 1,
+    "max_order_amount": 10000,
+    "order_timeout": 300,
+    "conservative_price_margin": 0.0
+  },
+  "logging_settings": {
+    "log_level": "INFO",
+    "log_to_file": true,
+    "log_to_console": true
+  }
 }
 ```
+
+#### 保守的価格マージン設定
+
+`trading_settings.conservative_price_margin`で保守的価格マージンを設定できます：
+
+- **0.0** (デフォルト): 保守的マージンなし（基本価格をそのまま使用）
+- **0.01**: 1%の保守的マージン（基本価格 × 1.01）
+- **0.02**: 2%の保守的マージン（基本価格 × 1.02）
+
+**保守的価格の目的**:
+- 価格変動リスクの軽減
+- 注文成功率の向上
+- 資金不足の防止
+- スリッページ対策
 
 ### 4. ポートフォリオ設定
 
