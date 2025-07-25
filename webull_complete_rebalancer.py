@@ -284,15 +284,15 @@ class WebullCompleteRebalancer:
                                 buying_power = float(currency_data.get('buying_power', 0))
                                 unrealized_profit_loss = float(currency_data.get('unrealized_profit_loss', 0))
                                 
-                                # 安全マージン（2%）を適用
-                                safety_margin = 0.02  # 2%
-                                adjusted_buying_power = buying_power * (1 - safety_margin)
+                                # 安全マージンOFF - 元の買付余力をそのまま使用
+                                safety_margin = 0.0  # 0% (安全マージンOFF)
+                                adjusted_buying_power = buying_power  # 安全マージンなし
                                 
                                 balances[currency] = {
                                     'cash_balance': cash_balance,
                                     'buying_power': buying_power,
                                     'unrealized_profit_loss': unrealized_profit_loss,
-                                    'available_cash': adjusted_buying_power,  # 安全マージン適用済み
+                                    'available_cash': adjusted_buying_power,  # 安全マージンなし
                                     'original_buying_power': buying_power,  # 元の買付余力
                                     'safety_margin_applied': safety_margin  # 適用された安全マージン
                                 }
@@ -304,15 +304,15 @@ class WebullCompleteRebalancer:
                             buying_power = float(currency_asset.get('buying_power', 0))
                             unrealized_profit_loss = float(currency_asset.get('unrealized_profit_loss', 0))
                             
-                            # 安全マージン（2%）を適用
-                            safety_margin = 0.02  # 2%
-                            adjusted_buying_power = buying_power * (1 - safety_margin)
+                            # 安全マージンOFF - 元の買付余力をそのまま使用
+                            safety_margin = 0.0  # 0% (安全マージンOFF)
+                            adjusted_buying_power = buying_power  # 安全マージンなし
                             
                             balances[currency] = {
                                 'cash_balance': cash_balance,
                                 'buying_power': buying_power,
                                 'unrealized_profit_loss': unrealized_profit_loss,
-                                'available_cash': adjusted_buying_power,  # 安全マージン適用済み
+                                'available_cash': adjusted_buying_power,  # 安全マージンなし
                                 'original_buying_power': buying_power,  # 元の買付余力
                                 'safety_margin_applied': safety_margin  # 適用された安全マージン
                             }
@@ -325,15 +325,15 @@ class WebullCompleteRebalancer:
                         buying_power = float(currency_asset.get('buying_power', 0))
                         unrealized_profit_loss = float(currency_asset.get('unrealized_profit_loss', 0))
                         
-                        # 安全マージン（2%）を適用
-                        safety_margin = 0.02  # 2%
-                        adjusted_buying_power = buying_power * (1 - safety_margin)
+                        # 安全マージンOFF - 元の買付余力をそのまま使用
+                        safety_margin = 0.0  # 0% (安全マージンOFF)
+                        adjusted_buying_power = buying_power  # 安全マージンなし
                         
                         balances[currency] = {
                             'cash_balance': cash_balance,
                             'buying_power': buying_power,
                             'unrealized_profit_loss': unrealized_profit_loss,
-                            'available_cash': adjusted_buying_power,  # 安全マージン適用済み
+                            'available_cash': adjusted_buying_power,  # 安全マージンなし
                             'original_buying_power': buying_power,  # 元の買付余力
                             'safety_margin_applied': safety_margin  # 適用された安全マージン
                         }
@@ -364,6 +364,11 @@ class WebullCompleteRebalancer:
                 self.logger.info(f"APIレスポンス構造: {json.dumps(position_data, indent=2)}")
                 
                 positions = []
+                
+                # レスポンスがリストの場合（空のポジション）
+                if isinstance(position_data, list):
+                    self.logger.info("ポジションなし（空のリスト）")
+                    return positions
                 
                 # v2 APIのレスポンス構造に対応
                 if 'data' in position_data:
@@ -1156,7 +1161,12 @@ class WebullCompleteRebalancer:
                 
                 # 未約定注文のみをフィルタリング（v2 API仕様）
                 open_orders = []
-                orders = orders_data.get('data', [])
+                
+                # レスポンスがリストの場合
+                if isinstance(orders_data, list):
+                    orders = orders_data
+                else:
+                    orders = orders_data.get('data', [])
                 
                 for order in orders:
                     status = order.get('status')
@@ -1265,9 +1275,9 @@ class WebullCompleteRebalancer:
             original_buying_power = usd_balance.get('original_buying_power', available_cash)
             safety_margin = usd_balance.get('safety_margin_applied', 0)
             
-            self.logger.info(f"利用可能なUSD: ${available_cash:,.2f} (安全マージン適用済み)")
+            self.logger.info(f"利用可能なUSD: ${available_cash:,.2f} (安全マージンなし)")
             self.logger.info(f"元の買付余力: ${original_buying_power:,.2f}")
-            self.logger.info(f"安全マージン: {safety_margin*100:.1f}%")
+            self.logger.info(f"安全マージン: {safety_margin*100:.1f}% (OFF)")
             self.logger.info(f"総資産価値: ${total_value:,.2f}")
             self.logger.info(f"現在のポジション数: {len(current_positions)}")
             
@@ -1663,7 +1673,7 @@ class WebullCompleteRebalancer:
             self.logger.info(f"  必要金額: ${required_amount:,.2f}")
             self.logger.info(f"  利用可能資金: ${available_cash:,.2f}")
             self.logger.info(f"  元の買付余力: ${original_buying_power:,.2f}")
-            self.logger.info(f"  安全マージン: {safety_margin*100:.1f}%")
+            self.logger.info(f"  安全マージン: {safety_margin*100:.1f}% (OFF)")
             
             if available_cash >= required_amount:
                 self.logger.info(f"  ✅ 買付余力充足")
