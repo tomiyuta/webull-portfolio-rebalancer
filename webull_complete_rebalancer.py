@@ -464,9 +464,36 @@ class WebullCompleteRebalancer:
                 
                 positions = []
                 
-                # レスポンスがリストの場合（空のポジション）
+                # レスポンスがリストの場合（直接ポジションリスト）
                 if isinstance(position_data, list):
-                    self.logger.info("ポジションなし（空のリスト）")
+                    for position in position_data:
+                        try:
+                            symbol = position['items'][0]['symbol']
+                            quantity = float(position['quantity'])
+                            cost_price = float(position['cost_price'])
+                            unrealized_pnl = float(position.get('unrealized_profit_loss', 0))
+                            
+                            # 数量が0より大きい場合のみ有効なポジションとして扱う
+                            if quantity > 0:
+                                # market_valueを計算（cost_price * quantity + unrealized_pnl）
+                                market_value = cost_price * quantity + unrealized_pnl
+                                
+                                positions.append({
+                                    'symbol': symbol,
+                                    'quantity': quantity,
+                                    'cost_price': cost_price,
+                                    'market_value': market_value,
+                                    'unrealized_profit_loss': unrealized_pnl
+                                })
+                                self.logger.info(f"ポジション: {symbol} - {quantity}株 - コスト: ${cost_price:.2f} - 市場価値: ${market_value:.2f}")
+                        except (KeyError, ValueError, IndexError) as e:
+                            self.logger.warning(f"ポジションデータの処理中にエラー: {e}")
+                            continue
+                    
+                    if not positions:
+                        self.logger.info("ポジションなし（空のリスト）")
+                    else:
+                        self.logger.info(f"取得したポジション数: {len(positions)}")
                     return positions
                 
                 # v2 APIのレスポンス構造に対応
@@ -1026,7 +1053,7 @@ class WebullCompleteRebalancer:
             self.logger.info("instrument_idキャッシュをクリアしました")
     
     def calculate_target_allocation(self, total_value):
-        """目標配分を計算"""
+        """目標配分を計算（利用可能資金ベース）"""
         # 設定から目標配分を取得
         target_allocation = self.config.get('target_allocation', {})
         
@@ -1041,6 +1068,45 @@ class WebullCompleteRebalancer:
         
         self.logger.info(f"目標配分: {allocation}")
         return allocation
+    
+    def calculate_target_allocation_total_value(self, current_positions, price_data, available_cash):
+        """総資産価値ベースの目標配分を計算"""
+        try:
+            self.logger.info("総資産価値ベースの目標配分を計算中...")
+            
+            # 1. 現在のポジション価値を計算
+            current_positions_value = {}
+            for position in current_positions:
+                symbol = position['symbol']
+                quantity = position['quantity']
+                # 価格データから取得、なければ既存のmarket_valueを使用
+                price = price_data.get(symbol, 0)
+                if price > 0:
+                    current_positions_value[symbol] = quantity * price
+                else:
+                    # 既存のmarket_valueを使用
+                    current_positions_value[symbol] = position.get('market_value', 0)
+            
+            # 2. 総資産価値を計算
+            total_portfolio_value = sum(current_positions_value.values()) + available_cash
+            
+            # 3. 目標配分を計算
+            target_allocation = self.config.get('target_allocation', {})
+            allocation = {}
+            
+            for symbol, percentage in target_allocation.items():
+                target_value = total_portfolio_value * (percentage / 100)
+                allocation[symbol] = target_value
+            
+            self.logger.info(f"総資産価値: ${total_portfolio_value:,.2f}")
+            self.logger.info(f"現在のポジション価値: {current_positions_value}")
+            self.logger.info(f"目標配分: {allocation}")
+            
+            return allocation, current_positions_value, total_portfolio_value
+            
+        except Exception as e:
+            self.logger.error(f"総資産価値ベース目標配分計算中にエラー発生: {e}")
+            return {}, {}, 0
     
     def calculate_rebalancing_trades(self, current_positions, target_allocation, available_cash):
         """リバランシング取引を計算"""
@@ -1087,6 +1153,127 @@ class WebullCompleteRebalancer:
         
         self.logger.info(f"計算された取引: {trades}")
         return trades
+    
+    def calculate_sell_trades(self, current_positions, target_allocation, price_data):
+        """既存ポジションの売却取引を計算"""
+        try:
+            self.logger.info("既存ポジションの売却取引を計算中...")
+            sell_trades = []
+            
+            for position in current_positions:
+                symbol = position['symbol']
+                current_quantity = position['quantity']
+                price = price_data.get(symbol, 0)
+                current_value = current_quantity * price
+                
+                # 目標配分に含まれない銘柄は全売却
+                if symbol not in target_allocation:
+                    # 価格データから現在価格を取得
+                    current_price = price_data.get(symbol, 0)
+                    if current_price > 0:
+                        estimated_value = current_quantity * current_price
+                    else:
+                        estimated_value = current_value
+                    
+                    sell_trades.append({
+                        'symbol': symbol,
+                        'action': 'SELL',
+                        'quantity': current_quantity,
+                        'estimated_value': estimated_value,
+                        'current_price': current_price,
+                        'reason': 'target_allocation_not_included'
+                    })
+                    self.logger.info(f"✅ {symbol}: {current_quantity}株売却予定 (${estimated_value:,.2f}) - 目標配分に含まれない")
+                else:
+                    # 目標配分に含まれる銘柄の場合、過剰分を売却
+                    target_value = target_allocation[symbol]
+                    if current_value > target_value:
+                        excess_value = current_value - target_value
+                        # 価格データから現在価格を取得
+                        current_price = price_data.get(symbol, 0)
+                        if current_price > 0:
+                            excess_quantity = int(excess_value / current_price)
+                            estimated_value = excess_quantity * current_price
+                        else:
+                            excess_quantity = int(excess_value / price)
+                            estimated_value = excess_quantity * price
+                        
+                        if excess_quantity > 0:
+                            sell_trades.append({
+                                'symbol': symbol,
+                                'action': 'SELL',
+                                'quantity': excess_quantity,
+                                'estimated_value': estimated_value,
+                                'current_price': current_price,
+                                'reason': 'excess_position'
+                            })
+                            self.logger.info(f"✅ {symbol}: {excess_quantity}株売却予定 (${estimated_value:,.2f}) - 過剰ポジション")
+            
+            self.logger.info(f"売却取引: {len(sell_trades)}件")
+            return sell_trades
+            
+        except Exception as e:
+            self.logger.error(f"売却取引計算中にエラー発生: {e}")
+            return []
+    
+    def calculate_buy_trades(self, target_allocation, current_positions, price_data, available_cash):
+        """新規購入取引を計算"""
+        try:
+            self.logger.info("新規購入取引を計算中...")
+            buy_trades = []
+            remaining_cash = available_cash
+            
+            for symbol, target_value in target_allocation.items():
+                price = price_data.get(symbol, 0)
+                if price <= 0:
+                    self.logger.warning(f"{symbol} の価格が無効: ${price}")
+                    continue
+                    
+                # 現在の数量を取得
+                current_quantity = 0
+                for position in current_positions:
+                    if position['symbol'] == symbol:
+                        current_quantity = position['quantity']
+                        break
+                
+                # 目標数量を計算
+                target_quantity = int(target_value / price)
+                needed_quantity = target_quantity - current_quantity
+                
+                if needed_quantity > 0:  # 購入が必要
+                    # 購入可能な最大数量を計算
+                    max_affordable_quantity = int(remaining_cash / price)
+                    actual_quantity = min(needed_quantity, max_affordable_quantity)
+                    
+                    if actual_quantity > 0:
+                        estimated_value = actual_quantity * price
+                        buy_trades.append({
+                            'symbol': symbol,
+                            'action': 'BUY',
+                            'quantity': actual_quantity,
+                            'estimated_value': estimated_value,
+                            'current_price': price,
+                            'target_quantity': target_quantity,
+                            'current_quantity': current_quantity,
+                            'remaining_cash_before': remaining_cash,
+                            'remaining_cash_after': remaining_cash - estimated_value
+                        })
+                        remaining_cash -= estimated_value
+                        
+                        self.logger.info(f"✅ {symbol}: {actual_quantity}株購入予定 (${estimated_value:,.2f})")
+                        self.logger.info(f"   残り資金: ${remaining_cash:,.2f}")
+                        
+                        if actual_quantity < needed_quantity:
+                            self.logger.info(f"   ⚠️ 部分実行: {actual_quantity}/{needed_quantity}株")
+                    else:
+                        self.logger.warning(f"{symbol}: 資金不足のため購入不可")
+            
+            self.logger.info(f"購入取引: {len(buy_trades)}件")
+            return buy_trades
+            
+        except Exception as e:
+            self.logger.error(f"購入取引計算中にエラー発生: {e}")
+            return []
     
     def execute_trades(self, trades):
         """取引を実行"""
@@ -1153,36 +1340,60 @@ class WebullCompleteRebalancer:
             else:
                 limit_price = current_price * 0.99  # 売り注文は少し安め
             
-            # 注文パラメータを構築（v2 API仕様）
+            # 注文パラメータを構築（Webull APIドキュメント準拠）
             client_order_id = uuid.uuid4().hex
-            new_orders = {
-                "client_order_id": client_order_id,
-                "symbol": symbol,
-                "instrument_type": "EQUITY",
-                "market": "US",  # 米国市場
-                "order_type": "LIMIT",
-                "limit_price": f"{limit_price:.2f}",
-                "quantity": str(quantity),
-                "support_trading_session": "N",  # 通常取引時間のみ
-                "side": "BUY" if action == "BUY" else "SELL",
-                "time_in_force": "DAY",
-                "entrust_type": "QTY",
-                "account_tax_type": "GENERAL"
-            }
             
-            self.logger.info(f"注文パラメータ: {new_orders}")
+            # 売却の場合は異なる注文タイプを試行
+            if action == "SELL":
+                # Webull APIサンプルコードに従ってSELL注文を設定
+                stock_order = {
+                    "client_order_id": client_order_id,
+                    "instrument_id": str(instrument_id),  # 必須パラメータ
+                    "side": "SELL",
+                    "tif": "DAY",  # time_in_forceではなくtif
+                    "extended_hours_trading": False,  # APIの要求に従ってfalseに設定
+                    "order_type": "LIMIT",  # LIMIT注文で試行
+                    "limit_price": f"{limit_price:.2f}",  # 指値価格を設定
+                    "qty": str(int(quantity)),  # 文字列として送信
+                    "trade_currency": "USD",  # 必須パラメータ
+                    "account_tax_type": "SPECIFIC"  # Webull APIサンプルコードに従ってSPECIFICに設定
+                }
+                self.logger.info(f"LIMIT注文で売却を試行: {symbol}")
+            else:
+                # 購入の場合は通常のLIMIT注文
+                stock_order = {
+                    "client_order_id": client_order_id,
+                    "instrument_id": str(instrument_id),  # 必須パラメータ
+                    "side": "BUY",
+                    "tif": "DAY",  # time_in_forceではなくtif
+                    "extended_hours_trading": False,  # APIの要求に従ってfalseに設定
+                    "order_type": "LIMIT",
+                    "limit_price": f"{limit_price:.2f}",
+                    "qty": str(int(quantity)),  # 文字列として送信
+                    "trade_currency": "USD",  # 必須パラメータ
+                    "account_tax_type": "GENERAL"
+                }
             
-            # リトライ機能付きで注文を発注（v2 API）
+            # キャッシュアカウントでの売却の場合、Webull APIドキュメントに従ってパラメータを設定
+            if action == "SELL":
+                # キャッシュアカウントではclose_contractsとmargin_typeは使用できない
+                # 基本的な売却注文のみを使用
+                self.logger.info(f"キャッシュアカウント用の売却注文を実行: {symbol}")
+                # account_tax_typeはGENERALのまま維持
+            
+            self.logger.info(f"注文パラメータ: {stock_order}")
+            
+            # リトライ機能付きで注文を発注（Webull API準拠）
             def api_call():
-                return self.api.order_v2.place_order(account_id=self.account_id, new_orders=new_orders)
+                return self.api.order.place_order_v2(account_id=self.account_id, stock_order=stock_order)
             
             response = self.api_call_with_retry(api_call, max_retries=3, delay=2, api_name="place_order_v2")
             
             if response and response.status_code == 200:
                 order_data = json.loads(response.text)
-                self.logger.info(f"注文発注成功（v2 API）: {order_data}")
+                self.logger.info(f"注文発注成功（Webull API）: {order_data}")
                 
-                # 注文IDを取得して監視を開始（v2 API仕様）
+                # 注文IDを取得して監視を開始（Webull API仕様）
                 order_id = order_data.get('order_id')
                 client_order_id = order_data.get('client_order_id')
                 
@@ -1199,7 +1410,11 @@ class WebullCompleteRebalancer:
                 
                 # 特定のエラーの場合の処理
                 if response and response.status_code == 417:
-                    if "ORDER_BUYING_POWER_NOT_ENOUGH" in error_msg:
+                    if "CASH_ACCOUNT_NOT_ALLOW_SELL_SHORT" in error_msg:
+                        self.logger.error(f"❌ キャッシュアカウント売却制限: {symbol}")
+                        # 段階的売却方法を試行
+                        return self._try_staged_sell_method(symbol, quantity, instrument_id, current_price)
+                    elif "ORDER_BUYING_POWER_NOT_ENOUGH" in error_msg:
                         self.logger.error(f"❌ 購入資金不足: {symbol}")
                     elif "INVALID_SYMBOL" in error_msg:
                         self.logger.error(f"❌ 無効な銘柄: {symbol}")
@@ -1217,13 +1432,13 @@ class WebullCompleteRebalancer:
         try:
             self.logger.info(f"注文監視開始: {order_id} ({symbol})")
             
-            # リトライ機能付きで注文詳細を取得（v2 API）
+            # リトライ機能付きで注文詳細を取得（Webull API）
             def api_call():
-                # Webull API v2では、account_id、client_order_idまたはorder_idが必要
+                # Webull APIでは、account_id、client_order_idまたはorder_idが必要
                 if client_order_id:
-                    return self.api.order_v2.get_order_detail(account_id=self.account_id, client_order_id=client_order_id)
+                    return self.api.order.get_order_detail(account_id=self.account_id, client_order_id=client_order_id)
                 else:
-                    return self.api.order_v2.get_order_detail(account_id=self.account_id, order_id=order_id)
+                    return self.api.order.get_order_detail(account_id=self.account_id, order_id=order_id)
             
             response = self.api_call_with_retry(api_call, max_retries=2, delay=1, api_name="get_order_detail")
             
@@ -1231,7 +1446,7 @@ class WebullCompleteRebalancer:
                 order_detail = json.loads(response.text)
                 self.logger.info(f"注文詳細: {order_detail}")
                 
-                # 注文ステータスを確認（v2 API仕様）
+                # 注文ステータスを確認（Webull API仕様）
                 status = order_detail.get('status')
                 self.logger.info(f"注文ステータス: {status}")
                 
@@ -1254,7 +1469,7 @@ class WebullCompleteRebalancer:
         """未約定注文を取得（リトライ機能付き）"""
         try:
             def api_call():
-                return self.api.order_v2.get_order_history_request(self.account_id)
+                return self.api.order.get_order_history_request(self.account_id)
             
             response = self.api_call_with_retry(api_call, max_retries=2, delay=1, api_name="get_order_history_request")
             
@@ -1262,7 +1477,7 @@ class WebullCompleteRebalancer:
                 orders_data = json.loads(response.text)
                 self.logger.info(f"注文履歴: {orders_data}")
                 
-                # 未約定注文のみをフィルタリング（v2 API仕様）
+                # 未約定注文のみをフィルタリング（Webull API仕様）
                 open_orders = []
                 
                 # レスポンスがリストの場合
@@ -1292,7 +1507,7 @@ class WebullCompleteRebalancer:
             self.logger.info(f"注文キャンセル: {order_id}")
             
             def api_call():
-                return self.api.order_v2.cancel_order(order_id)
+                return self.api.order.cancel_order(order_id)
             
             response = self.api_call_with_retry(api_call, max_retries=2, delay=1, api_name="cancel_order")
             
@@ -1426,6 +1641,246 @@ class WebullCompleteRebalancer:
                 self.save_trades_to_csv(trades)
             else:
                 self.logger.error("❌ リバランシング失敗: 取引実行エラー")
+                
+        except Exception as e:
+            self.logger.error(f"リバランシング中にエラー発生: {e}")
+    
+    def rebalance_total_value_staged(self):
+        """段階的な総資産価値ベースのリバランス実行（売却→購入の順序）"""
+        try:
+            self.logger.info("=== 段階的リバランシング開始（売却→購入） ===")
+            
+            # 保守的価格マージンの設定を表示
+            conservative_margin = self.config.get('trading_settings', {}).get('conservative_price_margin', 0.0)
+            if conservative_margin > 0:
+                self.logger.info(f"保守的価格マージン: {conservative_margin*100:.1f}%")
+            else:
+                self.logger.info("保守的価格マージン: なし (0%)")
+            
+            # ステップ1: 現在の状況を取得
+            self.logger.info("📊 ステップ1: 現在のポジションと残高をチェック")
+            portfolio_summary = self.get_portfolio_summary()
+            if not portfolio_summary:
+                self.logger.error("ポートフォリオサマリー取得失敗")
+                return
+            
+            current_positions = portfolio_summary['positions']
+            available_cash = portfolio_summary['buying_power']
+            
+            # ステップ2: 価格データを取得
+            self.logger.info("💰 ステップ2: 保守的価格で現在の価格を取得")
+            price_data = self.get_all_stock_prices_conservative()
+            if not price_data:
+                self.logger.error("保守的価格データ取得失敗")
+                return
+            
+            self.logger.info(f"取得した保守的価格データ: {price_data}")
+            
+            # ステップ3: 総資産価値ベースの目標配分を計算
+            self.logger.info("⚖️ ステップ3: 総資産価値ベースの目標配分を計算")
+            target_allocation, current_positions_value, total_portfolio_value = \
+                self.calculate_target_allocation_total_value(current_positions, price_data, available_cash)
+            
+            if not target_allocation:
+                self.logger.error("目標配分の計算に失敗しました")
+                return
+            
+            # ステップ4: 売却取引を計算
+            self.logger.info("📉 ステップ4: 売却取引を計算")
+            sell_trades = self.calculate_sell_trades(current_positions, target_allocation, price_data)
+            
+            # ステップ5: 売却取引を実行
+            if sell_trades:
+                self.logger.info("🚀 第1段階: 売却取引実行開始")
+                sell_success_count = self.execute_trades_safely(sell_trades)
+                self.logger.info(f"売却取引結果: {sell_success_count}/{len(sell_trades)} 成功")
+                
+                # 売却後の状況を再取得
+                if sell_success_count > 0:
+                    self.logger.info("⏳ 売却後の状況を再取得中...")
+                    time.sleep(5)  # 5秒待機
+                    
+                    # 売却後の状況を再取得
+                    portfolio_summary_after_sell = self.get_portfolio_summary()
+                    if portfolio_summary_after_sell:
+                        current_positions_after_sell = portfolio_summary_after_sell['positions']
+                        available_cash_after_sell = portfolio_summary_after_sell['buying_power']
+                        
+                        self.logger.info(f"売却後の利用可能資金: ${available_cash_after_sell}")
+                        
+                        # ステップ6: 購入取引を計算（売却後の資金で）
+                        self.logger.info("📈 ステップ6: 購入取引を計算（売却後の資金）")
+                        buy_trades = self.calculate_buy_trades(target_allocation, current_positions_after_sell, price_data, available_cash_after_sell)
+                        
+                        # ステップ7: 購入取引を実行
+                        if buy_trades:
+                            self.logger.info("🚀 第2段階: 購入取引実行開始")
+                            buy_success_count = self.execute_trades_safely(buy_trades)
+                            self.logger.info(f"購入取引結果: {buy_success_count}/{len(buy_trades)} 成功")
+                            
+                            total_success = sell_success_count + buy_success_count
+                            total_trades = len(sell_trades) + len(buy_trades)
+                            
+                            if total_success > 0:
+                                self.logger.info(f"✅ 段階的リバランシング完了: {total_success}/{total_trades} 取引成功")
+                                
+                                # 取引後チェック
+                                self.post_trade_checks()
+                                
+                                # 取引履歴を保存
+                                all_trades = sell_trades + buy_trades
+                                self.save_trades_to_csv(all_trades)
+                            else:
+                                self.logger.error("❌ 段階的リバランシング失敗: すべての取引が失敗")
+                        else:
+                            self.logger.info("購入する取引がありません")
+                            if sell_success_count > 0:
+                                self.logger.info(f"✅ 売却のみ完了: {sell_success_count}/{len(sell_trades)} 取引成功")
+                                self.save_trades_to_csv(sell_trades)
+                    else:
+                        self.logger.error("売却後の状況取得に失敗")
+                else:
+                    self.logger.error("❌ 売却取引がすべて失敗")
+            else:
+                self.logger.info("売却する取引がありません")
+                
+                # 売却取引がない場合は、通常の購入取引を実行
+                self.logger.info("📈 購入取引を計算")
+                buy_trades = self.calculate_buy_trades(target_allocation, current_positions, price_data, available_cash)
+                
+                if buy_trades:
+                    self.logger.info("🚀 購入取引実行開始")
+                    buy_success_count = self.execute_trades_safely(buy_trades)
+                    self.logger.info(f"購入取引結果: {buy_success_count}/{len(buy_trades)} 成功")
+                    
+                    if buy_success_count > 0:
+                        self.logger.info(f"✅ 購入のみ完了: {buy_success_count}/{len(buy_trades)} 取引成功")
+                        self.post_trade_checks()
+                        self.save_trades_to_csv(buy_trades)
+                    else:
+                        self.logger.error("❌ 購入取引がすべて失敗")
+                else:
+                    self.logger.info("実行する取引がありません")
+                
+        except Exception as e:
+            self.logger.error(f"段階的リバランシング中にエラー発生: {e}")
+
+    def rebalance_total_value(self):
+        """総資産価値ベースのリバランス実行（段階的実行）"""
+        try:
+            self.logger.info("=== 総資産価値ベースリバランス開始（段階的実行） ===")
+            
+            # 保守的価格マージンの設定を表示
+            conservative_margin = self.config.get('trading_settings', {}).get('conservative_price_margin', 0.0)
+            if conservative_margin > 0:
+                self.logger.info(f"保守的価格マージン: {conservative_margin*100:.1f}%")
+            else:
+                self.logger.info("保守的価格マージン: なし (0%)")
+            
+            # ステップ1: 現在の状況を取得
+            self.logger.info("📊 ステップ1: 現在のポジションと残高をチェック")
+            portfolio_summary = self.get_portfolio_summary()
+            if not portfolio_summary:
+                self.logger.error("ポートフォリオサマリー取得失敗")
+                return
+            
+            current_positions = portfolio_summary['positions']
+            available_cash = portfolio_summary['buying_power']
+            
+            # ステップ2: 価格データを取得
+            self.logger.info("💰 ステップ2: 保守的価格で現在の価格を取得")
+            price_data = self.get_all_stock_prices_conservative()
+            if not price_data:
+                self.logger.error("保守的価格データ取得失敗")
+                return
+            
+            self.logger.info(f"取得した保守的価格データ: {price_data}")
+            
+            # ステップ3: 総資産価値ベースの目標配分を計算
+            self.logger.info("⚖️ ステップ3: 総資産価値ベースの目標配分を計算")
+            target_allocation, current_positions_value, total_portfolio_value = \
+                self.calculate_target_allocation_total_value(current_positions, price_data, available_cash)
+            
+            if not target_allocation:
+                self.logger.error("目標配分の計算に失敗しました")
+                return
+            
+            # ステップ4: 売却取引を計算
+            self.logger.info("📉 ステップ4: 売却取引を計算")
+            sell_trades = self.calculate_sell_trades(current_positions, target_allocation, price_data)
+            
+            # ステップ5: 売却取引を実行
+            if sell_trades:
+                self.logger.info("🚀 第1段階: 売却取引実行開始")
+                sell_success_count = self.execute_trades_safely(sell_trades)
+                self.logger.info(f"売却取引結果: {sell_success_count}/{len(sell_trades)} 成功")
+                
+                # 売却後の状況を再取得
+                if sell_success_count > 0:
+                    self.logger.info("⏳ 売却後の状況を再取得中...")
+                    time.sleep(5)  # 5秒待機
+                    
+                    # 売却後の状況を再取得
+                    portfolio_summary_after_sell = self.get_portfolio_summary()
+                    if portfolio_summary_after_sell:
+                        current_positions_after_sell = portfolio_summary_after_sell['positions']
+                        available_cash_after_sell = portfolio_summary_after_sell['buying_power']
+                        
+                        self.logger.info(f"売却後の利用可能資金: ${available_cash_after_sell}")
+                        
+                        # ステップ6: 購入取引を計算（売却後の資金で）
+                        self.logger.info("📈 ステップ6: 購入取引を計算（売却後の資金）")
+                        buy_trades = self.calculate_buy_trades(target_allocation, current_positions_after_sell, price_data, available_cash_after_sell)
+                        
+                        # ステップ7: 購入取引を実行
+                        if buy_trades:
+                            self.logger.info("🚀 第2段階: 購入取引実行開始")
+                            buy_success_count = self.execute_trades_safely(buy_trades)
+                            self.logger.info(f"購入取引結果: {buy_success_count}/{len(buy_trades)} 成功")
+                            
+                            total_success = sell_success_count + buy_success_count
+                            total_trades = len(sell_trades) + len(buy_trades)
+                            
+                            if total_success > 0:
+                                self.logger.info(f"✅ リバランシング完了: {total_success}/{total_trades} 取引成功")
+                                
+                                # 取引後チェック
+                                self.post_trade_checks()
+                                
+                                # 取引履歴を保存
+                                all_trades = sell_trades + buy_trades
+                                self.save_trades_to_csv(all_trades)
+                            else:
+                                self.logger.error("❌ リバランシング失敗: すべての取引が失敗")
+                        else:
+                            self.logger.info("購入する取引がありません")
+                            if sell_success_count > 0:
+                                self.logger.info(f"✅ 売却のみ完了: {sell_success_count}/{len(sell_trades)} 取引成功")
+                                self.save_trades_to_csv(sell_trades)
+                    else:
+                        self.logger.error("売却後の状況取得に失敗")
+                else:
+                    self.logger.error("❌ 売却取引がすべて失敗")
+            else:
+                self.logger.info("売却する取引がありません")
+                
+                # 売却取引がない場合は、通常の購入取引を実行
+                self.logger.info("📈 購入取引を計算")
+                buy_trades = self.calculate_buy_trades(target_allocation, current_positions, price_data, available_cash)
+                
+                if buy_trades:
+                    self.logger.info("🚀 購入取引実行開始")
+                    buy_success_count = self.execute_trades_safely(buy_trades)
+                    self.logger.info(f"購入取引結果: {buy_success_count}/{len(buy_trades)} 成功")
+                    
+                    if buy_success_count > 0:
+                        self.logger.info(f"✅ 購入のみ完了: {buy_success_count}/{len(buy_trades)} 取引成功")
+                        self.post_trade_checks()
+                        self.save_trades_to_csv(buy_trades)
+                    else:
+                        self.logger.error("❌ 購入取引がすべて失敗")
+                else:
+                    self.logger.info("実行する取引がありません")
                 
         except Exception as e:
             self.logger.error(f"リバランシング中にエラー発生: {e}")
@@ -1801,15 +2256,230 @@ class WebullCompleteRebalancer:
             self.logger.error(f"買付余力チェック中にエラー発生: {e}")
             return False
 
+    def _get_contract_id_for_position(self, symbol):
+        """既存ポジションからcontract_idを取得"""
+        try:
+            # 現在のポジションを取得
+            positions = self.get_current_positions()
+            if not positions:
+                return None
+            
+            # 指定されたシンボルのポジションを検索
+            for position in positions:
+                if position.get('symbol') == symbol:
+                    # item_idをcontract_idとして使用
+                    items = position.get('items', [])
+                    if items and len(items) > 0:
+                        contract_id = items[0].get('item_id')
+                        if contract_id:
+                            self.logger.info(f"contract_id取得: {symbol} -> {contract_id}")
+                            return contract_id
+                        else:
+                            self.logger.warning(f"item_idが存在しません: {symbol}")
+                            return None
+                    else:
+                        self.logger.warning(f"itemsが存在しません: {symbol}")
+                        return None
+            
+            self.logger.warning(f"ポジションが見つかりません: {symbol}")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"contract_id取得エラー: {e}")
+            return None
+
+    def _try_alternative_sell_method(self, symbol, quantity, instrument_id, current_price):
+        """代替売却方法を試行"""
+        try:
+            self.logger.info(f"代替売却方法を試行: {symbol}")
+            
+            # 方法1: LIMIT注文で売却を試行
+            client_order_id = uuid.uuid4().hex
+            limit_price = current_price * 0.98  # より安い価格で売却
+            
+            stock_order = {
+                "client_order_id": client_order_id,
+                "instrument_id": str(instrument_id),
+                "side": "SELL",
+                "tif": "DAY",
+                "extended_hours_trading": False,  # APIの要求に従ってfalseに設定
+                "order_type": "LIMIT",
+                "limit_price": f"{limit_price:.2f}",
+                "qty": str(int(quantity)),
+                "trade_currency": "USD",
+                "account_tax_type": "SPECIFIC"  # SPECIFICに変更
+            }
+            
+            self.logger.info(f"代替LIMIT注文パラメータ: {stock_order}")
+            
+            def api_call():
+                return self.api.order.place_order_v2(account_id=self.account_id, stock_order=stock_order)
+            
+            response = self.api_call_with_retry(api_call, max_retries=2, delay=1, api_name="alternative_sell")
+            
+            if response and response.status_code == 200:
+                self.logger.info(f"✅ 代替売却成功: {symbol}")
+                return True
+            else:
+                self.logger.warning(f"代替売却失敗: {symbol}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"代替売却エラー: {e}")
+            return False
+
+    def _try_staged_sell_method(self, symbol, quantity, instrument_id, current_price):
+        """段階的な売却方法を試行（小さな注文→修正）"""
+        try:
+            self.logger.info(f"段階的売却方法を試行: {symbol}")
+            
+            # ステップ1: 小さな注文（1株）を発注
+            small_quantity = 1
+            client_order_id = uuid.uuid4().hex
+            
+            stock_order = {
+                "client_order_id": client_order_id,
+                "instrument_id": str(instrument_id),
+                "side": "SELL",
+                "tif": "DAY",
+                "extended_hours_trading": False,
+                "order_type": "LIMIT",
+                "limit_price": f"{current_price * 0.95:.2f}",  # 5%安い価格
+                "qty": str(small_quantity),
+                "trade_currency": "USD",
+                "account_tax_type": "GENERAL"
+            }
+            
+            self.logger.info(f"小さな注文パラメータ: {stock_order}")
+            
+            def api_call():
+                return self.api.order.place_order_v2(account_id=self.account_id, stock_order=stock_order)
+            
+            response = self.api_call_with_retry(api_call, max_retries=2, delay=1, api_name="small_sell")
+            
+            if response and response.status_code == 200:
+                order_data = json.loads(response.text)
+                self.logger.info(f"小さな注文成功: {order_data}")
+                
+                # ステップ2: 注文を修正して数量を増やす
+                order_id = order_data.get('order_id')
+                if order_id:
+                    return self._modify_order_quantity(order_id, client_order_id, quantity, current_price)
+                else:
+                    self.logger.warning("注文IDが取得できませんでした")
+                    return False
+            else:
+                self.logger.warning(f"小さな注文失敗: {response.text if response else 'No response'}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"段階的売却エラー: {e}")
+            return False
+
+    def _modify_order_quantity(self, order_id, client_order_id, target_quantity, current_price):
+        """注文数量を修正"""
+        try:
+            self.logger.info(f"注文数量修正: {order_id} -> {target_quantity}株")
+            
+            # replace-order APIを使用して数量を修正
+            stock_order = {
+                "client_order_id": client_order_id,
+                "order_type": "LIMIT",
+                "limit_price": f"{current_price * 0.95:.2f}",
+                "qty": str(target_quantity)
+            }
+            
+            self.logger.info(f"修正注文パラメータ: {stock_order}")
+            
+            def api_call():
+                return self.api.order.replace_order_v2(account_id=self.account_id, stock_order=stock_order)
+            
+            response = self.api_call_with_retry(api_call, max_retries=2, delay=1, api_name="replace_order")
+            
+            if response and response.status_code == 200:
+                self.logger.info(f"✅ 注文修正成功: {symbol}")
+                return True
+            else:
+                self.logger.warning(f"注文修正失敗: {response.text if response else 'No response'}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"注文修正エラー: {e}")
+            return False
+
+    def calculate_remaining_cash_allocation(self, available_cash, current_prices, target_allocations):
+        """残り資金を有効活用するための追加購入を計算"""
+        self.logger.info(f"💰 残り資金活用計算: ${available_cash:.2f}")
+        
+        # 購入可能な銘柄を特定（1株でも購入可能な銘柄）
+        affordable_stocks = []
+        for symbol, price in current_prices.items():
+            if price <= available_cash:
+                affordable_stocks.append((symbol, price))
+        
+        if not affordable_stocks:
+            self.logger.info(f"❌ 残り資金${available_cash:.2f}では1株も購入できません")
+            return []
+        
+        # 価格の安い順にソート
+        affordable_stocks.sort(key=lambda x: x[1])
+        
+        # 最も安い銘柄を選択
+        best_symbol, best_price = affordable_stocks[0]
+        max_shares = int(available_cash / best_price)
+        
+        if max_shares > 0:
+            cost = max_shares * best_price
+            self.logger.info(f"✅ 残り資金活用: {best_symbol} {max_shares}株購入予定 (${cost:.2f})")
+            return [{
+                'symbol': best_symbol,
+                'action': 'BUY',
+                'quantity': max_shares,
+                'estimated_cost': cost
+            }]
+        
+        return []
+
+    def calculate_fractional_buy_trades(self, available_cash, current_prices, target_allocations):
+        """残り資金で部分的な購入を計算"""
+        self.logger.info(f"💰 部分購入計算: ${available_cash:.2f}")
+        
+        # 価格の安い順にソート
+        sorted_prices = sorted(current_prices.items(), key=lambda x: x[1])
+        
+        for symbol, price in sorted_prices:
+            # 1株でも購入可能かチェック
+            if price <= available_cash:
+                max_shares = int(available_cash / price)
+                if max_shares > 0:
+                    cost = max_shares * price
+                    self.logger.info(f"✅ 部分購入可能: {symbol} {max_shares}株 (${cost:.2f})")
+                    return [{
+                        'symbol': symbol,
+                        'action': 'BUY',
+                        'quantity': max_shares,
+                        'estimated_cost': cost
+                    }]
+        
+        self.logger.info(f"❌ 残り資金${available_cash:.2f}では部分購入もできません")
+        return []
+
 def main():
     """メイン関数"""
     try:
         # コマンドライン引数から設定ファイルを取得
         config_file = sys.argv[1] if len(sys.argv) > 1 else 'webull_config_with_allocation.json'
         dry_run = sys.argv[2] == 'dry_run' if len(sys.argv) > 2 else None
+        staged_mode = '--staged' in sys.argv  # 段階的リバランシングモード
         
         rebalancer = WebullCompleteRebalancer(config_file=config_file, dry_run=dry_run)
-        rebalancer.rebalance()
+        
+        if staged_mode:
+            # 段階的リバランシング（売却→購入の順序）
+            rebalancer.rebalance_total_value_staged()
+        else:
+            # 通常のリバランシング
+            rebalancer.rebalance()
     except Exception as e:
         logging.error(f"メイン実行エラー: {e}")
 

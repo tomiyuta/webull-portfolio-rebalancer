@@ -1,3 +1,13 @@
 symbol,action,quantity,estimated_value,current_price,target_quantity,current_quantity,remaining_cash_before,remaining_cash_after,timestamp
 XLU,BUY,100,8500.0,85.0,100,0,10000.0,1500.0,2024-01-01 10:00:00.000000
 TQQQ,BUY,50,4500.0,90.0,50,0,1500.0,0.0,2024-01-01 10:00:00.000000
+NUGT,SELL,50.0,0.0,0,target_allocation_not_included,2025-07-29 14:05:16.378644
+SIL,SELL,50.0,0.0,0,target_allocation_not_included,2025-07-29 14:05:16.378644
+PLTR,SELL,44.0,0.0,0,target_allocation_not_included,2025-07-29 14:05:16.378644
+NUGT,SELL,50.0,0.0,0,target_allocation_not_included,2025-07-29 14:06:15.110231
+SIL,SELL,50.0,0.0,0,target_allocation_not_included,2025-07-29 14:06:15.110231
+PLTR,SELL,44.0,0.0,0,target_allocation_not_included,2025-07-29 14:06:15.110231
+NUGT,SELL,50.0,0.0,0.0,target_allocation_not_included,,,,,2025-07-29 14:08:11.115685
+SIL,SELL,50.0,0.0,0.0,target_allocation_not_included,,,,,2025-07-29 14:08:11.115685
+PLTR,SELL,44.0,0.0,0.0,target_allocation_not_included,,,,,2025-07-29 14:08:11.115685
+XLU,BUY,1.0,83.62,83.62,,50.0,0.0,101.1,17.47999999999999,2025-07-29 14:08:11.115685

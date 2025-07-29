@@ -104,6 +104,14 @@ cp webull_config_sample.json webull_config_with_allocation.json
     "order_timeout": 300,
     "conservative_price_margin": 0.0
   },
+  "rebalancing_settings": {
+    "mode": "total_value",
+    "include_existing_positions": true,
+    "sell_existing_positions": true,
+    "min_trade_amount": 100,
+    "max_trade_amount": 10000,
+    "rebalance_threshold": 0.05
+  },
   "logging_settings": {
     "log_level": "DEBUG",
     "log_to_file": true,
@@ -172,6 +180,11 @@ cp webull_config_sample.json webull_config_with_allocation.json
 - 資金不足の防止
 - スリッページ対策
 
+**初期設定について**:
+- **推奨初期値**: `0.0` (0%)
+- **理由**: 価格取得から実際の取引までの時間差が少ないため
+- **必要に応じて調整**: 市場のボラティリティや取引頻度に応じて設定
+
 ### 4. ポートフォリオ設定
 
 `portfolio.csv`を編集して、目標ポートフォリオ配分を設定：
@@ -190,13 +203,21 @@ GLD,14.1
 
 **ドライラン（テスト実行）:**
 ```bash
+# 総資産価値ベースリバランス（デフォルト）
 docker run --rm -v $(pwd):/app webullbot python3 run_rebalancing.py
+
+# 利用可能資金ベースリバランス
+docker run --rm -v $(pwd):/app webullbot python3 run_rebalancing.py --mode available_cash
 ```
 
 **実際の取引実行:**
 ```bash
 # 設定ファイルで dry_run: false に変更後
+# 総資産価値ベースリバランス（デフォルト）
 docker run --rm -v $(pwd):/app webullbot python3 run_rebalancing.py
+
+# 利用可能資金ベースリバランス
+docker run --rm -v $(pwd):/app webullbot python3 run_rebalancing.py --mode available_cash
 ```
 
 ### 従来の方法
@@ -228,11 +249,17 @@ run_webullbot.bat
 ### 手動実行
 
 ```bash
-# ドライラン
+# ドライラン（総資産価値ベース）
 python run_rebalancing.py
 
-# 実際の取引
+# ドライラン（利用可能資金ベース）
+python run_rebalancing.py --mode available_cash
+
+# 実際の取引（総資産価値ベース）
 python run_rebalancing.py --live
+
+# 実際の取引（利用可能資金ベース）
+python run_rebalancing.py --live --mode available_cash
 ```
 
 ## ファイル構成
@@ -262,9 +289,17 @@ webullbot/
 
 ### 1. ポートフォリオリバランシング
 
+#### 利用可能資金ベースリバランス（従来方式）
 - 現在のポジションと目標配分を比較
-- 必要な売買注文を自動計算
+- 利用可能資金のみを使用して購入
 - 買付余力を考慮した安全な取引実行
+
+#### 総資産価値ベースリバランス（改善方式）
+- 既存ポジションを含む総資産価値を使用
+- 段階的リバランス（売却→購入）
+- より効率的な資金活用
+- 目標配分に含まれない銘柄の自動売却
+- 過剰ポジションの自動調整
 
 ### 2. 保守的価格取得
 
@@ -286,6 +321,36 @@ webullbot/
 - パフォーマンス追跡
 
 ## 設定オプション
+
+### リバランスモード設定
+
+#### 総資産価値ベースリバランス（推奨）
+```json
+{
+  "rebalancing_settings": {
+    "mode": "total_value",
+    "include_existing_positions": true,
+    "sell_existing_positions": true,
+    "min_trade_amount": 100,
+    "max_trade_amount": 10000,
+    "rebalance_threshold": 0.05
+  }
+}
+```
+
+#### 利用可能資金ベースリバランス（従来方式）
+```json
+{
+  "rebalancing_settings": {
+    "mode": "available_cash",
+    "include_existing_positions": false,
+    "sell_existing_positions": false,
+    "min_trade_amount": 100,
+    "max_trade_amount": 10000,
+    "rebalance_threshold": 0.05
+  }
+}
+```
 
 ### webull_config_with_allocation.json
 

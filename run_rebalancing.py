@@ -17,6 +17,11 @@ def main():
                        help='本番モード（実際の取引を実行）')
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='詳細ログ出力')
+    parser.add_argument('--mode', '-m', choices=['available_cash', 'total_value', 'staged'],
+                       default='total_value',
+                       help='リバランスモード (default: total_value)')
+    parser.add_argument('--staged', action='store_true',
+                       help='段階的リバランシング（売却→購入の順序）')
     
     args = parser.parse_args()
     
@@ -37,6 +42,8 @@ def main():
         print("=== Webull Portfolio Rebalancer ===")
         print(f"設定ファイル: {args.config}")
         print(f"実行モード: {'DRY RUN' if dry_run else 'LIVE'}")
+        print(f"リバランスモード: {args.mode}")
+        print("段階的リバランシング: 標準（売却→購入の順序）")
         print(f"詳細ログ: {'ON' if args.verbose else 'OFF'}")
         print("=" * 40)
         
@@ -46,8 +53,15 @@ def main():
             dry_run=dry_run
         )
         
-        # リバランシング実行
-        rebalancer.rebalance()
+        # リバランスモードに応じて実行
+        if args.mode == 'total_value':
+            # 段階的リバランシング（売却→購入の順序）- 標準
+            rebalancer.rebalance_total_value()
+        elif args.mode == 'staged':
+            # 段階的リバランシング（明示的に指定）
+            rebalancer.rebalance_total_value_staged()
+        else:
+            rebalancer.rebalance()
         
         print("=" * 40)
         print("✅ リバランシング完了")
