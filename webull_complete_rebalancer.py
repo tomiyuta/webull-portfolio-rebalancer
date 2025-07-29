@@ -58,7 +58,7 @@ class WebullCompleteRebalancer:
             self.config['dry_run'] = dry_run
         
         self.api = self.initialize_api()
-        self.account_id = self.config.get('account_id')
+        self.account_id = self.config.get('account_id', '')
         self.dry_run = self.config.get('dry_run', True)
         
         # キャッシュの初期化
@@ -69,25 +69,38 @@ class WebullCompleteRebalancer:
         # 設定の検証
         self.validate_config()
         
+        # アカウントIDの確認と自動取得
+        if not self.ensure_account_id():
+            raise ValueError("アカウントIDの取得に失敗しました。設定を確認してください。")
+        
+        # target_allocationをCSVファイルから読み込み
+        portfolio_config_file = self.config.get('portfolio_config_file', 'portfolio.csv')
+        self.target_allocation = self.load_portfolio_config_csv(portfolio_config_file)
+        
         self.logger.info(f"WebullCompleteRebalancer初期化完了")
         self.logger.info(f"Account ID: {self.account_id}")
         self.logger.info(f"Dry Run Mode: {self.dry_run}")
     
     def validate_config(self):
         """設定の検証"""
-        required_fields = ['app_key', 'app_secret', 'account_id']
+        required_fields = ['app_key', 'app_secret']
         missing_fields = [field for field in required_fields if not self.config.get(field)]
         
         if missing_fields:
             raise ValueError(f"必須設定が不足しています: {missing_fields}")
         
-        if not self.config.get('target_allocation'):
-            raise ValueError("target_allocationが設定されていません")
+        # account_idの検証をスキップ（認証時に自動取得されるため）
+        # if not self.config.get('account_id'):
+        #     raise ValueError("account_idが設定されていません")
         
-        # 配分の合計を確認
-        total_allocation = sum(self.config['target_allocation'].values())
-        if abs(total_allocation - 100) > 1:  # 1%の誤差を許容
-            self.logger.warning(f"配分の合計が100%ではありません: {total_allocation}%")
+        # target_allocationの検証をスキップ（CSVファイルから読み込むため）
+        # if not self.config.get('target_allocation'):
+        #     raise ValueError("target_allocationが設定されていません")
+        
+        # 配分の合計を確認（CSVファイルから読み込むためスキップ）
+        # total_allocation = sum(self.config['target_allocation'].values())
+        # if abs(total_allocation - 100) > 1:  # 1%の誤差を許容
+        #     self.logger.warning(f"配分の合計が100%ではありません: {total_allocation}%")
     
     def load_config(self, config_file):
         """設定ファイルを読み込み"""
@@ -205,6 +218,82 @@ class WebullCompleteRebalancer:
             self.logger.error(f"Webull API初期化エラー: {e}")
             raise
     
+    def get_account_id_from_api(self):
+        """APIからアカウントIDを自動取得"""
+        try:
+            self.logger.info("=== アカウントID自動取得開始 ===")
+            
+            # 総合口座情報取得
+            response = self.api.account.get_app_subscriptions()
+            
+            if response.status_code == 200:
+                data = json.loads(response.text)
+                self.logger.info(f"取得したアカウントデータ: {data}")
+                
+                # アカウント詳細を抽出
+                for account_data in data:
+                    if account_data.get('account_type') == "CASH":
+                        account_number = account_data.get('account_number')
+                        account_id = account_data.get('account_id')
+                        subscription_id = account_data.get('subscription_id')
+                        user_id = account_data.get('user_id')
+                        
+                        self.logger.info(f"✅ アカウント情報取得成功:")
+                        self.logger.info(f"  - Account Number: {account_number}")
+                        self.logger.info(f"  - Account ID: {account_id}")
+                        self.logger.info(f"  - Subscription ID: {subscription_id}")
+                        self.logger.info(f"  - User ID: {user_id}")
+                        
+                        # 設定ファイルを更新
+                        self.config['account_id'] = account_id
+                        self.config['account_number'] = account_number
+                        self.config['subscription_id'] = subscription_id
+                        self.config['user_id'] = user_id
+                        
+                        # 設定ファイルを保存
+                        self.save_config()
+                        
+                        return account_id
+                
+                self.logger.error("❌ CASHアカウントが見つかりませんでした")
+                return None
+            else:
+                self.logger.error(f"❌ API呼び出しエラー: {response.status_code}")
+                self.logger.error(f"レスポンス: {response.text}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"❌ アカウントID取得エラー: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def save_config(self):
+        """設定ファイルを保存"""
+        try:
+            config_file = 'webull_config_with_allocation.json'
+            with open(config_file, 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, indent=2, ensure_ascii=False)
+            self.logger.info(f"✅ 設定ファイルを更新しました: {config_file}")
+        except Exception as e:
+            self.logger.error(f"❌ 設定ファイル保存エラー: {e}")
+    
+    def ensure_account_id(self):
+        """アカウントIDが設定されているか確認し、必要に応じて取得"""
+        if not self.account_id:
+            self.logger.info("アカウントIDが設定されていません。自動取得を試行します...")
+            account_id = self.get_account_id_from_api()
+            if account_id:
+                self.account_id = account_id
+                self.logger.info(f"✅ アカウントID設定完了: {account_id}")
+                return True
+            else:
+                self.logger.error("❌ アカウントIDの取得に失敗しました")
+                return False
+        else:
+            self.logger.info(f"✅ アカウントID既に設定済み: {self.account_id}")
+            return True
+    
     def rate_limit_check(self, api_name):
         """API呼び出し制限チェック"""
         now = datetime.now()
@@ -258,6 +347,11 @@ class WebullCompleteRebalancer:
     def get_account_balance(self):
         """口座残高を取得（リトライ機能付き）- Account Balance（v2）API使用 + 安全マージン"""
         try:
+            # アカウントIDの確認
+            if not self.account_id:
+                self.logger.error("アカウントIDが設定されていません")
+                return None
+            
             def api_call():
                 return self.api.account_v2.get_account_balance(self.account_id)
             
@@ -351,6 +445,11 @@ class WebullCompleteRebalancer:
     def get_current_positions(self):
         """現在のポジションを取得（リトライ機能付き）- Account Positions（v2）API使用"""
         try:
+            # アカウントIDの確認
+            if not self.account_id:
+                self.logger.error("アカウントIDが設定されていません")
+                return []
+            
             def api_call():
                 return self.api.account_v2.get_account_position(self.account_id)
             

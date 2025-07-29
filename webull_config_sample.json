@@ -1,0 +1,39 @@
+{
+  "username": "your_webull_username",
+  "password": "your_webull_password",
+  "app_key": "your_api_key_from_webull_portal",
+  "app_secret": "your_api_secret_from_webull_portal",
+  "account_id": "",
+  "account_number": "your_account_number_from_webull_app",
+  "subscription_id": "",
+  "user_id": "",
+  "access_token": "",
+  "refresh_token": "",
+  "portfolio_config_file": "portfolio.csv",
+  "dry_run": true,
+  "api_settings": {
+    "max_retries": 3,
+    "retry_delay": 1,
+    "rate_limit_delay": 2
+  },
+  "trading_settings": {
+    "price_slippage": 0.01,
+    "min_order_amount": 1,
+    "max_order_amount": 10000,
+    "order_timeout": 300,
+    "conservative_price_margin": 0.0
+  },
+  "logging_settings": {
+    "log_level": "DEBUG",
+    "log_to_file": true,
+    "log_to_console": true
+  },
+  "portfolio_name": "CSV Portfolio (portfolio.csv)",
+  "description": "CSVファイルから読み込まれたポートフォリオ設定",
+  "target_allocation": {
+    "XLU": 32.2,
+    "TQQQ": 32.2,
+    "TECL": 21.5,
+    "GLD": 14.1
+  }
+} 
