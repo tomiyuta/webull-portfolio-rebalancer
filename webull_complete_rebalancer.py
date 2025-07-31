@@ -66,6 +66,15 @@ class WebullCompleteRebalancer:
         self._instrument_id_cache = {}
         self._last_api_call = {}  # API呼び出し制限用
         
+        # レート制限統計の初期化
+        self._rate_limit_stats = {
+            'total_calls': 0,
+            'rate_limited_calls': 0,
+            'server_errors': 0,
+            'total_wait_time': 0,
+            'api_call_counts': {}
+        }
+        
         # 設定の検証
         self.validate_config()
         
@@ -295,19 +304,40 @@ class WebullCompleteRebalancer:
             return True
     
     def rate_limit_check(self, api_name):
-        """API呼び出し制限チェック"""
+        """API呼び出し制限チェック（改善版）"""
         now = datetime.now()
+        
+        # API別の制限設定
+        rate_limits = {
+            'get_account_balance': 2,      # 2秒間隔
+            'get_current_positions': 2,    # 2秒間隔
+            'get_stock_price': 1,          # 1秒間隔
+            'get_instrument_id': 1,        # 1秒間隔
+            'place_order': 3,              # 3秒間隔（注文は慎重に）
+            'get_order_detail': 2,         # 2秒間隔
+            'get_order_list': 2,           # 2秒間隔
+            'cancel_order': 3,             # 3秒間隔
+            'default': 1                   # デフォルト1秒間隔
+        }
+        
+        # API別の制限時間を取得
+        min_interval = rate_limits.get(api_name, rate_limits['default'])
+        
         if api_name in self._last_api_call:
             last_call = self._last_api_call[api_name]
             time_diff = (now - last_call).total_seconds()
             
-            # 1秒間隔を強制
-            if time_diff < 1:
-                sleep_time = 1 - time_diff
-                self.logger.debug(f"API制限のため {sleep_time:.2f}秒待機: {api_name}")
+            # 制限時間を超えていない場合
+            if time_diff < min_interval:
+                sleep_time = min_interval - time_diff
+                self.logger.debug(f"API制限のため {sleep_time:.2f}秒待機: {api_name} (制限: {min_interval}秒)")
                 time.sleep(sleep_time)
         
         self._last_api_call[api_name] = now
+        
+        # 統計情報を更新
+        self._rate_limit_stats['total_calls'] += 1
+        self._rate_limit_stats['api_call_counts'][api_name] = self._rate_limit_stats['api_call_counts'].get(api_name, 0) + 1
     
     def api_call_with_retry(self, api_func, max_retries=3, delay=1, api_name="unknown"):
         """API呼び出しにリトライ機能を追加（改善版）"""
@@ -322,10 +352,41 @@ class WebullCompleteRebalancer:
                 if response.status_code == 200:
                     return response
                 
-                # レート制限エラーの場合
+                # レート制限エラーの場合（429）
                 if response.status_code == 429:
+                    # レスポンスヘッダーからretry-afterを取得
+                    retry_after = response.headers.get('Retry-After')
+                    if retry_after:
+                        try:
+                            wait_time = int(retry_after)
+                            self.logger.warning(f"レート制限エラー (429)。サーバー指定の待機時間: {wait_time}秒")
+                        except ValueError:
+                            wait_time = delay * (2 ** attempt)  # 指数バックオフ
+                            self.logger.warning(f"レート制限エラー (429)。指数バックオフ: {wait_time}秒")
+                    else:
+                        wait_time = delay * (2 ** attempt)  # 指数バックオフ
+                        self.logger.warning(f"レート制限エラー (429)。指数バックオフ: {wait_time}秒")
+                    
+                    # 最大待機時間を制限（60秒）
+                    wait_time = min(wait_time, 60)
+                    self.logger.info(f"API制限のため {wait_time}秒待機してリトライ... (試行 {attempt + 1}/{max_retries})")
+                    
+                    # 統計情報を更新
+                    self._rate_limit_stats['rate_limited_calls'] += 1
+                    self._rate_limit_stats['total_wait_time'] += wait_time
+                    
+                    time.sleep(wait_time)
+                    continue
+                
+                # サーバーエラーの場合（5xx）
+                if 500 <= response.status_code < 600:
                     wait_time = delay * (2 ** attempt)  # 指数バックオフ
-                    self.logger.warning(f"レート制限エラー (429)。{wait_time}秒待機してリトライ...")
+                    self.logger.warning(f"サーバーエラー ({response.status_code})。{wait_time}秒待機してリトライ...")
+                    
+                    # 統計情報を更新
+                    self._rate_limit_stats['server_errors'] += 1
+                    self._rate_limit_stats['total_wait_time'] += wait_time
+                    
                     time.sleep(wait_time)
                     continue
                 
@@ -1628,6 +1689,44 @@ class WebullCompleteRebalancer:
             self.logger.error(f"一括キャンセルエラー: {e}")
             return False
     
+    def get_rate_limit_stats(self):
+        """レート制限統計情報を取得"""
+        stats = self._rate_limit_stats.copy()
+        
+        # 成功率を計算
+        if stats['total_calls'] > 0:
+            stats['success_rate'] = ((stats['total_calls'] - stats['rate_limited_calls'] - stats['server_errors']) / stats['total_calls']) * 100
+        else:
+            stats['success_rate'] = 100.0
+        
+        # 平均待機時間を計算
+        total_errors = stats['rate_limited_calls'] + stats['server_errors']
+        if total_errors > 0:
+            stats['avg_wait_time'] = stats['total_wait_time'] / total_errors
+        else:
+            stats['avg_wait_time'] = 0.0
+        
+        return stats
+    
+    def print_rate_limit_stats(self):
+        """レート制限統計情報を表示"""
+        stats = self.get_rate_limit_stats()
+        
+        self.logger.info("=== レート制限統計情報 ===")
+        self.logger.info(f"総API呼び出し数: {stats['total_calls']}")
+        self.logger.info(f"レート制限エラー数: {stats['rate_limited_calls']}")
+        self.logger.info(f"サーバーエラー数: {stats['server_errors']}")
+        self.logger.info(f"成功率: {stats['success_rate']:.1f}%")
+        self.logger.info(f"総待機時間: {stats['total_wait_time']:.1f}秒")
+        self.logger.info(f"平均待機時間: {stats['avg_wait_time']:.1f}秒")
+        
+        if stats['api_call_counts']:
+            self.logger.info("API別呼び出し数:")
+            for api_name, count in sorted(stats['api_call_counts'].items(), key=lambda x: x[1], reverse=True):
+                self.logger.info(f"  {api_name}: {count}回")
+        
+        self.logger.info("==========================")
+    
     def save_trades_to_csv(self, trades):
         """取引履歴をCSVに保存"""
         if trades:
@@ -1835,6 +1934,9 @@ class WebullCompleteRebalancer:
                                 # 取引履歴を保存
                                 all_trades = sell_trades + buy_trades
                                 self.save_trades_to_csv(all_trades)
+                                
+                                # レート制限統計情報を表示
+                                self.print_rate_limit_stats()
                             else:
                                 self.logger.error("❌ 段階的リバランシング失敗: すべての取引が失敗")
                         else:
