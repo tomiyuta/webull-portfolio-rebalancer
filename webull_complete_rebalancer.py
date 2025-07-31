@@ -75,8 +75,19 @@ class WebullCompleteRebalancer:
             'api_call_counts': {}
         }
         
+        # SDK互換性情報の初期化
+        self._sdk_compatibility = {
+            'sdk_versions': {},
+            'api_methods': {},
+            'compatibility_issues': [],
+            'recommendations': []
+        }
+        
         # 設定の検証
         self.validate_config()
+        
+        # SDK互換性の確認
+        self.check_sdk_compatibility()
         
         # アカウントIDの確認と自動取得
         if not self.ensure_account_id():
@@ -2170,6 +2181,332 @@ class WebullCompleteRebalancer:
         
         self.logger.info("======================")
     
+    def check_sdk_compatibility(self):
+        """SDK互換性の確認"""
+        try:
+            self.logger.info("=== SDK互換性チェック開始 ===")
+            
+            # ステップ1: SDKバージョンの確認
+            self._check_sdk_versions()
+            
+            # ステップ2: APIメソッドの確認
+            self._check_api_methods()
+            
+            # ステップ3: 互換性問題の分析
+            self._analyze_compatibility_issues()
+            
+            # ステップ4: 推奨事項の提示
+            self._provide_compatibility_recommendations()
+            
+            self.logger.info("=== SDK互換性チェック完了 ===")
+            
+        except Exception as e:
+            self.logger.error(f"SDK互換性チェック中にエラー発生: {e}")
+    
+    def _check_sdk_versions(self):
+        """SDKバージョンの確認"""
+        try:
+            self.logger.info("ステップ1: SDKバージョンの確認")
+            
+            # 各SDKのバージョンを確認
+            sdk_packages = {
+                'webull-python-sdk-trade': 'webullsdktrade',
+                'webull-python-sdk-core': 'webullsdkcore',
+                'webull-python-sdk-trade-events-core': 'webullsdktradeeventscore',
+                'webull-python-sdk-mdata': 'webullsdkcore',
+                'webull': 'webull'
+            }
+            
+            for package_name, import_name in sdk_packages.items():
+                try:
+                    module = __import__(import_name)
+                    version = getattr(module, '__version__', 'Unknown')
+                    self._sdk_compatibility['sdk_versions'][package_name] = version
+                    self.logger.info(f"  {package_name}: {version}")
+                except ImportError:
+                    self._sdk_compatibility['sdk_versions'][package_name] = 'Not Installed'
+                    self.logger.warning(f"  {package_name}: Not Installed")
+                except Exception as e:
+                    self._sdk_compatibility['sdk_versions'][package_name] = f'Error: {e}'
+                    self.logger.error(f"  {package_name}: Error - {e}")
+            
+        except Exception as e:
+            self.logger.error(f"SDKバージョン確認中にエラー発生: {e}")
+    
+    def _check_api_methods(self):
+        """APIメソッドの確認"""
+        try:
+            self.logger.info("ステップ2: APIメソッドの確認")
+            
+            # 重要なAPIメソッドの存在確認
+            api_methods_to_check = {
+                'account_v2.get_account_balance': self.api.account_v2,
+                'order.place_order_v2': self.api.order,
+                'order.get_order_detail': self.api.order,
+                'order.get_order_list': self.api.order,
+                'order.cancel_order': self.api.order,
+                'quote.get_snapshot': self.api.quote,
+                'quote.get_history_bars': self.api.quote,
+                'quote.get_eod_bars': self.api.quote,
+                'quote.get_instrument_id': self.api.quote
+            }
+            
+            for method_name, module in api_methods_to_check.items():
+                try:
+                    # メソッドの存在確認
+                    method_parts = method_name.split('.')
+                    current_module = module
+                    
+                    for part in method_parts[1:]:
+                        if hasattr(current_module, part):
+                            current_module = getattr(current_module, part)
+                        else:
+                            raise AttributeError(f"Method {part} not found")
+                    
+                    self._sdk_compatibility['api_methods'][method_name] = 'Available'
+                    self.logger.info(f"  {method_name}: Available")
+                    
+                except AttributeError as e:
+                    self._sdk_compatibility['api_methods'][method_name] = f'Not Available: {e}'
+                    self.logger.warning(f"  {method_name}: Not Available - {e}")
+                except Exception as e:
+                    self._sdk_compatibility['api_methods'][method_name] = f'Error: {e}'
+                    self.logger.error(f"  {method_name}: Error - {e}")
+            
+        except Exception as e:
+            self.logger.error(f"APIメソッド確認中にエラー発生: {e}")
+    
+    def _analyze_compatibility_issues(self):
+        """互換性問題の分析"""
+        try:
+            self.logger.info("ステップ3: 互換性問題の分析")
+            
+            issues = []
+            
+            # バージョン互換性の問題をチェック
+            version_issues = self._check_version_compatibility()
+            issues.extend(version_issues)
+            
+            # APIメソッドの問題をチェック
+            method_issues = self._check_method_compatibility()
+            issues.extend(method_issues)
+            
+            # 設定の問題をチェック
+            config_issues = self._check_config_compatibility()
+            issues.extend(config_issues)
+            
+            self._sdk_compatibility['compatibility_issues'] = issues
+            
+            if issues:
+                self.logger.warning(f"互換性問題が {len(issues)} 件見つかりました:")
+                for i, issue in enumerate(issues, 1):
+                    self.logger.warning(f"  {i}. {issue}")
+            else:
+                self.logger.info("互換性問題は見つかりませんでした")
+            
+        except Exception as e:
+            self.logger.error(f"互換性問題分析中にエラー発生: {e}")
+    
+    def _check_version_compatibility(self):
+        """バージョン互換性の問題をチェック"""
+        issues = []
+        
+        try:
+            # 推奨バージョンの定義
+            recommended_versions = {
+                'webull-python-sdk-trade': '0.1.11',
+                'webull-python-sdk-core': '0.1.11',
+                'webull-python-sdk-trade-events-core': '0.1.11',
+                'webull-python-sdk-mdata': '0.1.11',
+                'webull': '0.6.0'
+            }
+            
+            for package, current_version in self._sdk_compatibility['sdk_versions'].items():
+                if package in recommended_versions:
+                    recommended = recommended_versions[package]
+                    if current_version != recommended and current_version != 'Not Installed' and not current_version.startswith('Error'):
+                        issues.append(f"{package}: 現在のバージョン {current_version} が推奨バージョン {recommended} と異なります")
+            
+        except Exception as e:
+            issues.append(f"バージョン互換性チェックエラー: {e}")
+        
+        return issues
+    
+    def _check_method_compatibility(self):
+        """APIメソッド互換性の問題をチェック"""
+        issues = []
+        
+        try:
+            # 必須メソッドの定義
+            required_methods = [
+                'account_v2.get_account_balance',
+                'order.place_order_v2',
+                'order.get_order_detail',
+                'order.get_order_list',
+                'order.cancel_order'
+            ]
+            
+            for method in required_methods:
+                if method in self._sdk_compatibility['api_methods']:
+                    status = self._sdk_compatibility['api_methods'][method]
+                    if not status.startswith('Available'):
+                        issues.append(f"必須メソッド {method} が利用できません: {status}")
+                else:
+                    issues.append(f"必須メソッド {method} が見つかりません")
+            
+        except Exception as e:
+            issues.append(f"メソッド互換性チェックエラー: {e}")
+        
+        return issues
+    
+    def _check_config_compatibility(self):
+        """設定互換性の問題をチェック"""
+        issues = []
+        
+        try:
+            # 必須設定の確認
+            required_configs = ['app_key', 'app_secret']
+            for config in required_configs:
+                if not self.config.get(config):
+                    issues.append(f"必須設定 {config} が不足しています")
+            
+            # アカウントタイプの確認
+            if self.config.get('account_type') == 'CASH':
+                issues.append("キャッシュアカウントでは売却制限があります")
+            
+        except Exception as e:
+            issues.append(f"設定互換性チェックエラー: {e}")
+        
+        return issues
+    
+    def _provide_compatibility_recommendations(self):
+        """互換性に関する推奨事項を提示"""
+        try:
+            self.logger.info("ステップ4: 推奨事項の提示")
+            
+            recommendations = []
+            
+            # バージョン関連の推奨事項
+            version_recs = self._get_version_recommendations()
+            recommendations.extend(version_recs)
+            
+            # メソッド関連の推奨事項
+            method_recs = self._get_method_recommendations()
+            recommendations.extend(method_recs)
+            
+            # 設定関連の推奨事項
+            config_recs = self._get_config_recommendations()
+            recommendations.extend(config_recs)
+            
+            self._sdk_compatibility['recommendations'] = recommendations
+            
+            if recommendations:
+                self.logger.info("推奨事項:")
+                for i, recommendation in enumerate(recommendations, 1):
+                    self.logger.info(f"  {i}. {recommendation}")
+            else:
+                self.logger.info("推奨事項はありません")
+            
+        except Exception as e:
+            self.logger.error(f"推奨事項提示中にエラー発生: {e}")
+    
+    def _get_version_recommendations(self):
+        """バージョン関連の推奨事項を取得"""
+        recommendations = []
+        
+        try:
+            # 推奨バージョンの定義
+            recommended_versions = {
+                'webull-python-sdk-trade': '0.1.11',
+                'webull-python-sdk-core': '0.1.11',
+                'webull-python-sdk-trade-events-core': '0.1.11',
+                'webull-python-sdk-mdata': '0.1.11',
+                'webull': '0.6.0'
+            }
+            
+            for package, current_version in self._sdk_compatibility['sdk_versions'].items():
+                if package in recommended_versions:
+                    recommended = recommended_versions[package]
+                    if current_version != recommended and current_version != 'Not Installed' and not current_version.startswith('Error'):
+                        recommendations.append(f"{package} をバージョン {recommended} に更新することを推奨します")
+            
+        except Exception as e:
+            recommendations.append(f"バージョン推奨事項の取得エラー: {e}")
+        
+        return recommendations
+    
+    def _get_method_recommendations(self):
+        """メソッド関連の推奨事項を取得"""
+        recommendations = []
+        
+        try:
+            # 利用できないメソッドに対する推奨事項
+            unavailable_methods = []
+            for method, status in self._sdk_compatibility['api_methods'].items():
+                if not status.startswith('Available'):
+                    unavailable_methods.append(method)
+            
+            if unavailable_methods:
+                recommendations.append(f"利用できないメソッドがあります: {', '.join(unavailable_methods)}")
+                recommendations.append("SDKの更新または代替メソッドの使用を検討してください")
+            
+        except Exception as e:
+            recommendations.append(f"メソッド推奨事項の取得エラー: {e}")
+        
+        return recommendations
+    
+    def _get_config_recommendations(self):
+        """設定関連の推奨事項を取得"""
+        recommendations = []
+        
+        try:
+            # アカウントタイプの推奨事項
+            if self.config.get('account_type') == 'CASH':
+                recommendations.append("マージンアカウントへの変更を検討してください（売却制限の回避）")
+            
+            # 認証情報の推奨事項
+            if not self.config.get('app_key') or not self.config.get('app_secret'):
+                recommendations.append("API認証情報の設定を確認してください")
+            
+        except Exception as e:
+            recommendations.append(f"設定推奨事項の取得エラー: {e}")
+        
+        return recommendations
+    
+    def get_sdk_compatibility_info(self):
+        """SDK互換性情報を取得"""
+        return self._sdk_compatibility.copy()
+    
+    def print_sdk_compatibility_info(self):
+        """SDK互換性情報を表示"""
+        info = self.get_sdk_compatibility_info()
+        
+        self.logger.info("=== SDK互換性情報 ===")
+        
+        # SDKバージョン情報
+        self.logger.info("SDKバージョン:")
+        for package, version in info['sdk_versions'].items():
+            self.logger.info(f"  {package}: {version}")
+        
+        # APIメソッド情報
+        self.logger.info("APIメソッド:")
+        for method, status in info['api_methods'].items():
+            self.logger.info(f"  {method}: {status}")
+        
+        # 互換性問題
+        if info['compatibility_issues']:
+            self.logger.info("互換性問題:")
+            for issue in info['compatibility_issues']:
+                self.logger.info(f"  - {issue}")
+        
+        # 推奨事項
+        if info['recommendations']:
+            self.logger.info("推奨事項:")
+            for recommendation in info['recommendations']:
+                self.logger.info(f"  - {recommendation}")
+        
+        self.logger.info("=====================")
+    
     def save_trades_to_csv(self, trades):
         """取引履歴をCSVに保存"""
         if trades:
@@ -2383,6 +2720,9 @@ class WebullCompleteRebalancer:
                                 
                                 # エラー統計情報を表示
                                 self.print_error_stats()
+                                
+                                # SDK互換性情報を表示
+                                self.print_sdk_compatibility_info()
                             else:
                                 self.logger.error("❌ 段階的リバランシング失敗: すべての取引が失敗")
                         else:
