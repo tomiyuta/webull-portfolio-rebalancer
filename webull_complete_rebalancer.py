@@ -3959,6 +3959,935 @@ class WebullCompleteRebalancer:
             self.logger.error(f"平均スリッページ計算中にエラー発生: {e}")
             return 0
     
+    def analyze_performance(self, period='30d', benchmark='SPY'):
+        """包括的なパフォーマンス分析"""
+        try:
+            self.logger.info("=== パフォーマンス分析開始 ===")
+            
+            # 分析期間の設定
+            analysis_period = self._get_analysis_period(period)
+            
+            # 取引履歴の取得
+            trades = self._get_trades_for_period(analysis_period)
+            if not trades:
+                self.logger.warning("分析期間内の取引が見つかりません")
+                return None
+            
+            # 包括的なパフォーマンス分析
+            performance_analysis = {
+                'period': period,
+                'analysis_date': datetime.now().isoformat(),
+                'trade_performance': self._analyze_trade_performance(trades),
+                'portfolio_performance': self._analyze_portfolio_performance(trades),
+                'risk_metrics': self._analyze_risk_metrics_comprehensive(trades),
+                'execution_quality': self._analyze_execution_quality_comprehensive(trades),
+                'cost_analysis': self._analyze_cost_performance(trades),
+                'benchmark_comparison': self._compare_with_benchmark(trades, benchmark),
+                'performance_attribution': self._analyze_performance_attribution(trades),
+                'improvement_recommendations': self._generate_performance_recommendations(trades)
+            }
+            
+            # 分析結果の表示
+            self._display_performance_analysis(performance_analysis)
+            
+            # 結果の保存
+            self._save_performance_analysis(performance_analysis)
+            
+            self.logger.info("=== パフォーマンス分析完了 ===")
+            return performance_analysis
+            
+        except Exception as e:
+            self.logger.error(f"パフォーマンス分析中にエラー発生: {e}")
+            return None
+    
+    def _get_analysis_period(self, period):
+        """分析期間の取得"""
+        try:
+            end_date = datetime.now()
+            
+            if period.endswith('d'):
+                days = int(period[:-1])
+                start_date = end_date - timedelta(days=days)
+            elif period.endswith('w'):
+                weeks = int(period[:-1])
+                start_date = end_date - timedelta(weeks=weeks)
+            elif period.endswith('m'):
+                months = int(period[:-1])
+                start_date = end_date - timedelta(days=months*30)
+            elif period.endswith('y'):
+                years = int(period[:-1])
+                start_date = end_date - timedelta(days=years*365)
+            else:
+                # デフォルト: 30日
+                start_date = end_date - timedelta(days=30)
+            
+            return {
+                'start_date': start_date,
+                'end_date': end_date,
+                'period_days': (end_date - start_date).days
+            }
+            
+        except Exception as e:
+            self.logger.error(f"分析期間取得中にエラー発生: {e}")
+            return {
+                'start_date': datetime.now() - timedelta(days=30),
+                'end_date': datetime.now(),
+                'period_days': 30
+            }
+    
+    def _get_trades_for_period(self, analysis_period):
+        """期間内の取引履歴を取得"""
+        try:
+            trades = self.load_trade_history()
+            period_trades = []
+            
+            for trade in trades:
+                try:
+                    trade_date = datetime.fromisoformat(trade.get('timestamp', '').replace('Z', '+00:00'))
+                    if analysis_period['start_date'] <= trade_date <= analysis_period['end_date']:
+                        period_trades.append(trade)
+                except Exception as e:
+                    self.logger.warning(f"取引日付の解析エラー: {e}")
+            
+            return period_trades
+            
+        except Exception as e:
+            self.logger.error(f"期間内取引取得中にエラー発生: {e}")
+            return []
+    
+    def _analyze_trade_performance(self, trades):
+        """取引パフォーマンスの分析"""
+        try:
+            performance = {
+                'total_trades': len(trades),
+                'successful_trades': 0,
+                'failed_trades': 0,
+                'success_rate': 0,
+                'total_volume': 0,
+                'total_value': 0,
+                'average_trade_size': 0,
+                'trade_frequency': 0,
+                'execution_times': [],
+                'fill_rates': [],
+                'price_improvements': []
+            }
+            
+            total_execution_time = 0
+            total_fill_rate = 0
+            total_price_improvement = 0
+            valid_execution_count = 0
+            valid_fill_count = 0
+            valid_improvement_count = 0
+            
+            for trade in trades:
+                # 成功/失敗の統計
+                status = trade.get('execution_status', '').upper()
+                if status in ['FILLED', 'SUCCESS']:
+                    performance['successful_trades'] += 1
+                else:
+                    performance['failed_trades'] += 1
+                
+                # ボリュームと価値
+                quantity = float(trade.get('quantity', 0))
+                value = float(trade.get('estimated_value', 0))
+                performance['total_volume'] += quantity
+                performance['total_value'] += value
+                
+                # 実行時間
+                duration = float(trade.get('execution_duration', 0))
+                if duration > 0:
+                    performance['execution_times'].append(duration)
+                    total_execution_time += duration
+                    valid_execution_count += 1
+                
+                # 約定率
+                fill_rate = float(trade.get('fill_percentage', 0))
+                if fill_rate > 0:
+                    performance['fill_rates'].append(fill_rate)
+                    total_fill_rate += fill_rate
+                    valid_fill_count += 1
+                
+                # 価格改善
+                price_diff = float(trade.get('price_difference', 0))
+                if price_diff > 0:
+                    performance['price_improvements'].append(price_diff)
+                    total_price_improvement += price_diff
+                    valid_improvement_count += 1
+            
+            # 計算値の設定
+            total_trades = performance['successful_trades'] + performance['failed_trades']
+            if total_trades > 0:
+                performance['success_rate'] = round((performance['successful_trades'] / total_trades) * 100, 2)
+            
+            if total_trades > 0:
+                performance['average_trade_size'] = round(performance['total_value'] / total_trades, 2)
+            
+            # 取引頻度（1日あたり）
+            if performance['total_trades'] > 0:
+                performance['trade_frequency'] = round(performance['total_trades'] / 30, 2)  # 30日で正規化
+            
+            # 平均実行時間
+            if valid_execution_count > 0:
+                performance['average_execution_time'] = round(total_execution_time / valid_execution_count, 2)
+            
+            # 平均約定率
+            if valid_fill_count > 0:
+                performance['average_fill_rate'] = round(total_fill_rate / valid_fill_count, 2)
+            
+            # 平均価格改善
+            if valid_improvement_count > 0:
+                performance['average_price_improvement'] = round(total_price_improvement / valid_improvement_count, 4)
+            
+            return performance
+            
+        except Exception as e:
+            self.logger.error(f"取引パフォーマンス分析中にエラー発生: {e}")
+            return {}
+    
+    def _analyze_portfolio_performance(self, trades):
+        """ポートフォリオパフォーマンスの分析"""
+        try:
+            portfolio = {
+                'total_return': 0,
+                'buy_volume': 0,
+                'sell_volume': 0,
+                'net_position_change': 0,
+                'cash_flow': 0,
+                'position_turnover': 0,
+                'diversification_metrics': {},
+                'allocation_efficiency': {}
+            }
+            
+            total_buy_value = 0
+            total_sell_value = 0
+            symbols_traded = set()
+            allocation_changes = {}
+            
+            for trade in trades:
+                action = trade.get('action', '').upper()
+                value = float(trade.get('estimated_value', 0))
+                symbol = trade.get('symbol', '')
+                
+                if action == 'BUY':
+                    total_buy_value += value
+                    portfolio['buy_volume'] += value
+                    portfolio['cash_flow'] -= value
+                elif action == 'SELL':
+                    total_sell_value += value
+                    portfolio['sell_volume'] += value
+                    portfolio['cash_flow'] += value
+                
+                if symbol:
+                    symbols_traded.add(symbol)
+                    
+                    # 配分変更の追跡
+                    if symbol not in allocation_changes:
+                        allocation_changes[symbol] = {'buys': 0, 'sells': 0}
+                    
+                    if action == 'BUY':
+                        allocation_changes[symbol]['buys'] += value
+                    elif action == 'SELL':
+                        allocation_changes[symbol]['sells'] += value
+            
+            # 計算値の設定
+            portfolio['net_position_change'] = total_buy_value - total_sell_value
+            
+            # ポジション回転率
+            total_volume = portfolio['buy_volume'] + portfolio['sell_volume']
+            if total_volume > 0:
+                portfolio['position_turnover'] = round(total_volume / (total_buy_value + total_sell_value) * 2, 2)
+            
+            # 分散化指標
+            portfolio['diversification_metrics'] = {
+                'symbols_traded': len(symbols_traded),
+                'symbol_diversity': self._calculate_symbol_diversity(symbols_traded),
+                'concentration_risk': self._calculate_concentration_risk(allocation_changes)
+            }
+            
+            # 配分効率
+            portfolio['allocation_efficiency'] = {
+                'target_vs_actual': self._compare_target_vs_actual_allocation(trades),
+                'rebalancing_efficiency': self._calculate_rebalancing_efficiency(trades),
+                'allocation_drift': self._calculate_allocation_drift(trades)
+            }
+            
+            return portfolio
+            
+        except Exception as e:
+            self.logger.error(f"ポートフォリオパフォーマンス分析中にエラー発生: {e}")
+            return {}
+    
+    def _analyze_risk_metrics_comprehensive(self, trades):
+        """包括的なリスク指標の分析"""
+        try:
+            risk_metrics = {
+                'volatility': 0,
+                'max_drawdown': 0,
+                'var_95': 0,  # Value at Risk (95%)
+                'sharpe_ratio': 0,
+                'sortino_ratio': 0,
+                'calmar_ratio': 0,
+                'win_rate': 0,
+                'profit_factor': 0,
+                'average_win': 0,
+                'average_loss': 0,
+                'largest_win': 0,
+                'largest_loss': 0,
+                'consecutive_wins': 0,
+                'consecutive_losses': 0
+            }
+            
+            # 価格変動の追跡
+            price_changes = []
+            wins = 0
+            losses = 0
+            total_win = 0
+            total_loss = 0
+            consecutive_wins = 0
+            consecutive_losses = 0
+            max_consecutive_wins = 0
+            max_consecutive_losses = 0
+            
+            for trade in trades:
+                price_diff = float(trade.get('price_difference', 0))
+                if price_diff != 0:
+                    price_changes.append(price_diff)
+                    
+                    if price_diff > 0:
+                        wins += 1
+                        total_win += price_diff
+                        consecutive_wins += 1
+                        consecutive_losses = 0
+                        max_consecutive_wins = max(max_consecutive_wins, consecutive_wins)
+                    else:
+                        losses += 1
+                        total_loss += abs(price_diff)
+                        consecutive_losses += 1
+                        consecutive_wins = 0
+                        max_consecutive_losses = max(max_consecutive_losses, consecutive_losses)
+            
+            # リスク指標の計算
+            if price_changes:
+                risk_metrics['volatility'] = round(np.std(price_changes), 4)
+                risk_metrics['max_drawdown'] = round(min(price_changes), 4)
+                
+                # VaR (95%)
+                sorted_changes = sorted(price_changes)
+                var_index = int(len(sorted_changes) * 0.05)
+                risk_metrics['var_95'] = round(sorted_changes[var_index], 4)
+                
+                # シャープレシオ（リスクフリーレートを0%と仮定）
+                mean_return = np.mean(price_changes)
+                if risk_metrics['volatility'] > 0:
+                    risk_metrics['sharpe_ratio'] = round(mean_return / risk_metrics['volatility'], 4)
+            
+            # 勝率と利益指標
+            total_trades = wins + losses
+            if total_trades > 0:
+                risk_metrics['win_rate'] = round((wins / total_trades) * 100, 2)
+            
+            if wins > 0:
+                risk_metrics['average_win'] = round(total_win / wins, 4)
+                risk_metrics['largest_win'] = round(max(price_changes), 4)
+            
+            if losses > 0:
+                risk_metrics['average_loss'] = round(total_loss / losses, 4)
+                risk_metrics['largest_loss'] = round(min(price_changes), 4)
+            
+            # 利益因子
+            if total_loss > 0:
+                risk_metrics['profit_factor'] = round(total_win / total_loss, 4)
+            
+            # 連続勝敗
+            risk_metrics['consecutive_wins'] = max_consecutive_wins
+            risk_metrics['consecutive_losses'] = max_consecutive_losses
+            
+            return risk_metrics
+            
+        except Exception as e:
+            self.logger.error(f"リスク指標分析中にエラー発生: {e}")
+            return {}
+    
+    def _analyze_execution_quality_comprehensive(self, trades):
+        """包括的な実行品質の分析"""
+        try:
+            quality_metrics = {
+                'overall_quality_score': 0,
+                'speed_metrics': {},
+                'accuracy_metrics': {},
+                'fill_metrics': {},
+                'impact_metrics': {},
+                'timing_metrics': {},
+                'quality_distribution': {}
+            }
+            
+            # 品質スコアの収集
+            quality_scores = []
+            execution_times = []
+            price_accuracies = []
+            fill_rates = []
+            market_impacts = []
+            
+            for trade in trades:
+                # 実行品質スコア
+                quality = float(trade.get('execution_quality', 0))
+                if quality > 0:
+                    quality_scores.append(quality)
+                
+                # 実行時間
+                duration = float(trade.get('execution_duration', 0))
+                if duration > 0:
+                    execution_times.append(duration)
+                
+                # 価格精度
+                limit_price = float(trade.get('limit_price', 0))
+                execution_price = float(trade.get('execution_price', 0))
+                if limit_price > 0 and execution_price > 0:
+                    accuracy = abs(execution_price - limit_price) / limit_price
+                    price_accuracies.append(accuracy)
+                
+                # 約定率
+                fill_rate = float(trade.get('fill_percentage', 0))
+                if fill_rate > 0:
+                    fill_rates.append(fill_rate)
+                
+                # 市場インパクト
+                impact = float(trade.get('impact_cost', 0))
+                if impact != 0:
+                    market_impacts.append(abs(impact))
+            
+            # 全体品質スコア
+            if quality_scores:
+                quality_metrics['overall_quality_score'] = round(np.mean(quality_scores), 2)
+            
+            # 速度指標
+            if execution_times:
+                quality_metrics['speed_metrics'] = {
+                    'average_time': round(np.mean(execution_times), 2),
+                    'median_time': round(np.median(execution_times), 2),
+                    'fastest_time': round(min(execution_times), 2),
+                    'slowest_time': round(max(execution_times), 2),
+                    'speed_consistency': round(1 - (np.std(execution_times) / np.mean(execution_times)), 4)
+                }
+            
+            # 精度指標
+            if price_accuracies:
+                quality_metrics['accuracy_metrics'] = {
+                    'average_accuracy': round(np.mean(price_accuracies) * 100, 4),
+                    'best_accuracy': round(min(price_accuracies) * 100, 4),
+                    'worst_accuracy': round(max(price_accuracies) * 100, 4),
+                    'accuracy_consistency': round(1 - (np.std(price_accuracies) / np.mean(price_accuracies)), 4)
+                }
+            
+            # 約定指標
+            if fill_rates:
+                quality_metrics['fill_metrics'] = {
+                    'average_fill_rate': round(np.mean(fill_rates), 2),
+                    'perfect_fills': len([r for r in fill_rates if r >= 100]),
+                    'partial_fills': len([r for r in fill_rates if r < 100 and r > 0]),
+                    'fill_consistency': round(1 - (np.std(fill_rates) / np.mean(fill_rates)), 4)
+                }
+            
+            # インパクト指標
+            if market_impacts:
+                quality_metrics['impact_metrics'] = {
+                    'average_impact': round(np.mean(market_impacts), 4),
+                    'max_impact': round(max(market_impacts), 4),
+                    'impact_consistency': round(1 - (np.std(market_impacts) / np.mean(market_impacts)), 4)
+                }
+            
+            # 品質分布
+            if quality_scores:
+                quality_metrics['quality_distribution'] = {
+                    'excellent': len([q for q in quality_scores if q >= 90]),
+                    'good': len([q for q in quality_scores if 80 <= q < 90]),
+                    'average': len([q for q in quality_scores if 70 <= q < 80]),
+                    'poor': len([q for q in quality_scores if 60 <= q < 70]),
+                    'very_poor': len([q for q in quality_scores if q < 60])
+                }
+            
+            return quality_metrics
+            
+        except Exception as e:
+            self.logger.error(f"実行品質分析中にエラー発生: {e}")
+            return {}
+    
+    def _analyze_cost_performance(self, trades):
+        """コストパフォーマンスの分析"""
+        try:
+            cost_metrics = {
+                'total_commission': 0,
+                'total_fees': 0,
+                'total_cost': 0,
+                'average_cost_per_trade': 0,
+                'cost_percentage': 0,
+                'cost_efficiency': 0,
+                'cost_breakdown': {},
+                'cost_trends': {}
+            }
+            
+            total_value = 0
+            commission_by_type = {}
+            fees_by_type = {}
+            
+            for trade in trades:
+                # コストの集計
+                commission = float(trade.get('commission', 0))
+                fees = float(trade.get('fees', 0))
+                value = float(trade.get('estimated_value', 0))
+                
+                cost_metrics['total_commission'] += commission
+                cost_metrics['total_fees'] += fees
+                cost_metrics['total_cost'] += commission + fees
+                total_value += value
+                
+                # 取引タイプ別のコスト分類
+                action = trade.get('action', '').upper()
+                if action not in commission_by_type:
+                    commission_by_type[action] = 0
+                    fees_by_type[action] = 0
+                
+                commission_by_type[action] += commission
+                fees_by_type[action] += fees
+            
+            # 平均コスト
+            if len(trades) > 0:
+                cost_metrics['average_cost_per_trade'] = round(cost_metrics['total_cost'] / len(trades), 2)
+            
+            # コスト率
+            if total_value > 0:
+                cost_metrics['cost_percentage'] = round((cost_metrics['total_cost'] / total_value) * 100, 4)
+            
+            # コスト効率（品質スコアとの相関）
+            quality_scores = [float(t.get('execution_quality', 0)) for t in trades if float(t.get('execution_quality', 0)) > 0]
+            if quality_scores and cost_metrics['total_cost'] > 0:
+                avg_quality = np.mean(quality_scores)
+                cost_metrics['cost_efficiency'] = round(avg_quality / cost_metrics['cost_percentage'], 2)
+            
+            # コスト内訳
+            cost_metrics['cost_breakdown'] = {
+                'commission_by_type': commission_by_type,
+                'fees_by_type': fees_by_type,
+                'commission_percentage': round((cost_metrics['total_commission'] / cost_metrics['total_cost']) * 100, 2) if cost_metrics['total_cost'] > 0 else 0,
+                'fees_percentage': round((cost_metrics['total_fees'] / cost_metrics['total_cost']) * 100, 2) if cost_metrics['total_cost'] > 0 else 0
+            }
+            
+            return cost_metrics
+            
+        except Exception as e:
+            self.logger.error(f"コストパフォーマンス分析中にエラー発生: {e}")
+            return {}
+    
+    def _compare_with_benchmark(self, trades, benchmark):
+        """ベンチマークとの比較"""
+        try:
+            benchmark_comparison = {
+                'benchmark_symbol': benchmark,
+                'benchmark_return': 0,
+                'relative_performance': 0,
+                'excess_return': 0,
+                'information_ratio': 0,
+                'tracking_error': 0,
+                'correlation': 0
+            }
+            
+            # ベンチマークデータの取得（簡易版）
+            benchmark_data = self._get_benchmark_data_simple(benchmark)
+            if not benchmark_data:
+                return benchmark_comparison
+            
+            # ポートフォリオリターンの計算
+            portfolio_return = self._calculate_portfolio_return(trades)
+            
+            # 比較指標の計算
+            benchmark_comparison['benchmark_return'] = benchmark_data.get('return', 0)
+            benchmark_comparison['relative_performance'] = portfolio_return - benchmark_data.get('return', 0)
+            benchmark_comparison['excess_return'] = benchmark_comparison['relative_performance']
+            
+            # 情報比率
+            tracking_error = benchmark_data.get('volatility', 0.01)
+            if tracking_error > 0:
+                benchmark_comparison['information_ratio'] = round(benchmark_comparison['excess_return'] / tracking_error, 4)
+            
+            benchmark_comparison['tracking_error'] = tracking_error
+            benchmark_comparison['correlation'] = benchmark_data.get('correlation', 0)
+            
+            return benchmark_comparison
+            
+        except Exception as e:
+            self.logger.error(f"ベンチマーク比較中にエラー発生: {e}")
+            return {}
+    
+    def _get_benchmark_data_simple(self, benchmark):
+        """簡易ベンチマークデータの取得"""
+        try:
+            # 簡易的なベンチマークデータ（実際の実装では外部APIを使用）
+            benchmark_data = {
+                'SPY': {'return': 0.05, 'volatility': 0.15, 'correlation': 0.8},
+                'QQQ': {'return': 0.08, 'volatility': 0.20, 'correlation': 0.7},
+                'IWM': {'return': 0.06, 'volatility': 0.18, 'correlation': 0.6}
+            }
+            
+            return benchmark_data.get(benchmark, {'return': 0.05, 'volatility': 0.15, 'correlation': 0.5})
+            
+        except Exception as e:
+            self.logger.error(f"ベンチマークデータ取得中にエラー発生: {e}")
+            return None
+    
+    def _calculate_portfolio_return(self, trades):
+        """ポートフォリオリターンの計算"""
+        try:
+            total_return = 0
+            total_value = 0
+            
+            for trade in trades:
+                value = float(trade.get('estimated_value', 0))
+                price_diff = float(trade.get('price_difference', 0))
+                
+                if value > 0:
+                    trade_return = price_diff / value
+                    total_return += trade_return * value
+                    total_value += value
+            
+            return round((total_return / total_value) * 100, 4) if total_value > 0 else 0
+            
+        except Exception as e:
+            self.logger.error(f"ポートフォリオリターン計算中にエラー発生: {e}")
+            return 0
+    
+    def _analyze_performance_attribution(self, trades):
+        """パフォーマンス帰属分析"""
+        try:
+            attribution = {
+                'timing_contribution': 0,
+                'selection_contribution': 0,
+                'execution_contribution': 0,
+                'cost_contribution': 0,
+                'factor_breakdown': {}
+            }
+            
+            # 各要因の貢献度を計算
+            timing_contrib = 0
+            selection_contrib = 0
+            execution_contrib = 0
+            cost_contrib = 0
+            
+            for trade in trades:
+                # タイミング貢献（市場タイミング）
+                market_timing = self._calculate_market_timing_contribution(trade)
+                timing_contrib += market_timing
+                
+                # 銘柄選択貢献
+                selection_contrib += self._calculate_selection_contribution(trade)
+                
+                # 実行貢献
+                execution_contrib += self._calculate_execution_contribution(trade)
+                
+                # コスト貢献
+                cost_contrib += self._calculate_cost_contribution(trade)
+            
+            attribution['timing_contribution'] = round(timing_contrib, 4)
+            attribution['selection_contribution'] = round(selection_contrib, 4)
+            attribution['execution_contribution'] = round(execution_contrib, 4)
+            attribution['cost_contribution'] = round(cost_contrib, 4)
+            
+            # 要因別内訳
+            attribution['factor_breakdown'] = {
+                'timing_percentage': round((timing_contrib / (timing_contrib + selection_contrib + execution_contrib + cost_contrib)) * 100, 2) if (timing_contrib + selection_contrib + execution_contrib + cost_contrib) > 0 else 0,
+                'selection_percentage': round((selection_contrib / (timing_contrib + selection_contrib + execution_contrib + cost_contrib)) * 100, 2) if (timing_contrib + selection_contrib + execution_contrib + cost_contrib) > 0 else 0,
+                'execution_percentage': round((execution_contrib / (timing_contrib + selection_contrib + execution_contrib + cost_contrib)) * 100, 2) if (timing_contrib + selection_contrib + execution_contrib + cost_contrib) > 0 else 0,
+                'cost_percentage': round((cost_contrib / (timing_contrib + selection_contrib + execution_contrib + cost_contrib)) * 100, 2) if (timing_contrib + selection_contrib + execution_contrib + cost_contrib) > 0 else 0
+            }
+            
+            return attribution
+            
+        except Exception as e:
+            self.logger.error(f"パフォーマンス帰属分析中にエラー発生: {e}")
+            return {}
+    
+    def _calculate_market_timing_contribution(self, trade):
+        """市場タイミング貢献の計算"""
+        try:
+            # 簡易的な市場タイミング貢献の計算
+            market_conditions = trade.get('market_conditions', '')
+            if market_conditions == 'REGULAR_HOURS':
+                return 0.001  # 通常時間は有利
+            elif market_conditions == 'EXTENDED_HOURS':
+                return 0.0005  # 延長時間は中程度
+            else:
+                return -0.001  # 時間外は不利
+        except Exception as e:
+            self.logger.error(f"市場タイミング貢献計算中にエラー発生: {e}")
+            return 0
+    
+    def _calculate_selection_contribution(self, trade):
+        """銘柄選択貢献の計算"""
+        try:
+            # 簡易的な銘柄選択貢献の計算
+            symbol = trade.get('symbol', '')
+            if symbol in ['XLU', 'TQQQ', 'TECL']:  # 高配分銘柄
+                return 0.002
+            else:
+                return 0.001
+        except Exception as e:
+            self.logger.error(f"銘柄選択貢献計算中にエラー発生: {e}")
+            return 0
+    
+    def _calculate_execution_contribution(self, trade):
+        """実行貢献の計算"""
+        try:
+            # 実行品質に基づく貢献の計算
+            quality = float(trade.get('execution_quality', 0))
+            if quality >= 90:
+                return 0.002
+            elif quality >= 80:
+                return 0.001
+            elif quality >= 70:
+                return 0.0005
+            else:
+                return -0.001
+        except Exception as e:
+            self.logger.error(f"実行貢献計算中にエラー発生: {e}")
+            return 0
+    
+    def _calculate_cost_contribution(self, trade):
+        """コスト貢献の計算"""
+        try:
+            # コストに基づく貢献の計算（負の貢献）
+            commission = float(trade.get('commission', 0))
+            fees = float(trade.get('fees', 0))
+            value = float(trade.get('estimated_value', 0))
+            
+            if value > 0:
+                cost_rate = (commission + fees) / value
+                return -cost_rate
+            return 0
+        except Exception as e:
+            self.logger.error(f"コスト貢献計算中にエラー発生: {e}")
+            return 0
+    
+    def _generate_performance_recommendations(self, trades):
+        """パフォーマンス改善提案の生成"""
+        try:
+            recommendations = []
+            
+            # 成功率の分析
+            success_rate = self._calculate_overall_success_rate(trades)
+            if success_rate < 85:
+                recommendations.append({
+                    'category': 'Success Rate',
+                    'priority': 'HIGH',
+                    'recommendation': f"成功率が{success_rate}%と低いです。エラー分析を確認し、注文パラメータを最適化してください。",
+                    'action_items': ['エラーログの確認', '注文パラメータの見直し', '市場状況の分析']
+                })
+            
+            # 実行品質の分析
+            avg_quality = self._calculate_average_quality(trades)
+            if avg_quality < 75:
+                recommendations.append({
+                    'category': 'Execution Quality',
+                    'priority': 'HIGH',
+                    'recommendation': f"実行品質が{avg_quality}/100と低いです。価格設定とタイミングを改善してください。",
+                    'action_items': ['価格設定の最適化', '注文タイミングの改善', '市場インパクトの最小化']
+                })
+            
+            # コスト効率の分析
+            avg_cost_percentage = self._calculate_average_cost_percentage(trades)
+            if avg_cost_percentage > 0.3:
+                recommendations.append({
+                    'category': 'Cost Efficiency',
+                    'priority': 'MEDIUM',
+                    'recommendation': f"取引コストが{avg_cost_percentage*100:.2f}%と高いです。手数料の見直しを検討してください。",
+                    'action_items': ['手数料プランの見直し', '取引頻度の最適化', '大口取引の検討']
+                })
+            
+            # リスク管理の分析
+            risk_metrics = self._analyze_risk_metrics_comprehensive(trades)
+            if risk_metrics.get('max_drawdown', 0) < -0.05:
+                recommendations.append({
+                    'category': 'Risk Management',
+                    'priority': 'HIGH',
+                    'recommendation': f"最大ドローダウンが{risk_metrics.get('max_drawdown', 0)*100:.2f}%と大きいです。リスク管理を強化してください。",
+                    'action_items': ['ポジションサイズの調整', 'ストップロス設定', '分散投資の強化']
+                })
+            
+            return recommendations
+            
+        except Exception as e:
+            self.logger.error(f"改善提案生成中にエラー発生: {e}")
+            return []
+    
+    def _display_performance_analysis(self, analysis):
+        """パフォーマンス分析結果の表示"""
+        try:
+            self.logger.info("=== パフォーマンス分析レポート ===")
+            
+            # 基本情報
+            self.logger.info(f"📅 分析期間: {analysis.get('period', 'N/A')}")
+            self.logger.info(f"📊 分析日時: {analysis.get('analysis_date', 'N/A')}")
+            
+            # 取引パフォーマンス
+            trade_perf = analysis.get('trade_performance', {})
+            self.logger.info(f"📈 取引パフォーマンス:")
+            self.logger.info(f"  総取引数: {trade_perf.get('total_trades', 0)}")
+            self.logger.info(f"  成功率: {trade_perf.get('success_rate', 0)}%")
+            self.logger.info(f"  平均取引サイズ: ${trade_perf.get('average_trade_size', 0):,.2f}")
+            self.logger.info(f"  取引頻度: {trade_perf.get('trade_frequency', 0)}回/日")
+            
+            # ポートフォリオパフォーマンス
+            portfolio_perf = analysis.get('portfolio_performance', {})
+            self.logger.info(f"💼 ポートフォリオパフォーマンス:")
+            self.logger.info(f"  買いボリューム: ${portfolio_perf.get('buy_volume', 0):,.2f}")
+            self.logger.info(f"  売りボリューム: ${portfolio_perf.get('sell_volume', 0):,.2f}")
+            self.logger.info(f"  ポジション回転率: {portfolio_perf.get('position_turnover', 0)}")
+            
+            # リスク指標
+            risk_metrics = analysis.get('risk_metrics', {})
+            self.logger.info(f"⚠️ リスク指標:")
+            self.logger.info(f"  ボラティリティ: {risk_metrics.get('volatility', 0):.4f}")
+            self.logger.info(f"  最大ドローダウン: {risk_metrics.get('max_drawdown', 0):.4f}")
+            self.logger.info(f"  シャープレシオ: {risk_metrics.get('sharpe_ratio', 0):.4f}")
+            self.logger.info(f"  勝率: {risk_metrics.get('win_rate', 0)}%")
+            
+            # 実行品質
+            quality_metrics = analysis.get('execution_quality', {})
+            self.logger.info(f"🎯 実行品質:")
+            self.logger.info(f"  全体品質スコア: {quality_metrics.get('overall_quality_score', 0)}/100")
+            
+            # コスト分析
+            cost_metrics = analysis.get('cost_analysis', {})
+            self.logger.info(f"💰 コスト分析:")
+            self.logger.info(f"  総コスト: ${cost_metrics.get('total_cost', 0):,.2f}")
+            self.logger.info(f"  コスト率: {cost_metrics.get('cost_percentage', 0):.4f}%")
+            
+            # ベンチマーク比較
+            benchmark = analysis.get('benchmark_comparison', {})
+            self.logger.info(f"📊 ベンチマーク比較 ({benchmark.get('benchmark_symbol', 'N/A')}):")
+            self.logger.info(f"  相対パフォーマンス: {benchmark.get('relative_performance', 0):.4f}%")
+            self.logger.info(f"  情報比率: {benchmark.get('information_ratio', 0):.4f}")
+            
+            # 改善提案
+            recommendations = analysis.get('improvement_recommendations', [])
+            if recommendations:
+                self.logger.info(f"💡 改善提案:")
+                for i, rec in enumerate(recommendations[:3], 1):  # 上位3件を表示
+                    self.logger.info(f"  {i}. [{rec.get('priority', 'N/A')}] {rec.get('recommendation', 'N/A')}")
+            
+            self.logger.info("=================================")
+            
+        except Exception as e:
+            self.logger.error(f"パフォーマンス分析表示中にエラー発生: {e}")
+    
+    def _save_performance_analysis(self, analysis):
+        """パフォーマンス分析結果の保存"""
+        try:
+            # 結果をJSONファイルに保存
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"data/performance_analysis_{analysis.get('period', 'unknown')}_{timestamp}.json"
+            
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(analysis, f, indent=2, ensure_ascii=False, default=str)
+            
+            self.logger.info(f"✅ パフォーマンス分析結果を保存: {filename}")
+            
+        except Exception as e:
+            self.logger.error(f"パフォーマンス分析保存中にエラー発生: {e}")
+    
+    def _calculate_symbol_diversity(self, symbols):
+        """銘柄多様性の計算"""
+        try:
+            # 簡易的な多様性指標（実際の実装ではより詳細な分析が必要）
+            return len(symbols)
+        except Exception as e:
+            self.logger.error(f"銘柄多様性計算中にエラー発生: {e}")
+            return 0
+    
+    def _calculate_concentration_risk(self, allocation_changes):
+        """集中度リスクの計算"""
+        try:
+            if not allocation_changes:
+                return 0
+            
+            # 各銘柄の取引額を取得
+            values = [abs(changes['buys'] - changes['sells']) for changes in allocation_changes.values()]
+            total_value = sum(values)
+            
+            if total_value == 0:
+                return 0
+            
+            # ヘルファインダール指数（集中度指標）
+            concentration = sum((v / total_value) ** 2 for v in values)
+            return round(concentration, 4)
+            
+        except Exception as e:
+            self.logger.error(f"集中度リスク計算中にエラー発生: {e}")
+            return 0
+    
+    def _compare_target_vs_actual_allocation(self, trades):
+        """目標配分と実際の配分の比較"""
+        try:
+            # 簡易的な比較（実際の実装ではより詳細な分析が必要）
+            return {
+                'target_allocation': self.target_allocation,
+                'actual_allocation': self._calculate_actual_allocation(trades),
+                'allocation_drift': 0.05  # 仮の値
+            }
+        except Exception as e:
+            self.logger.error(f"配分比較中にエラー発生: {e}")
+            return {}
+    
+    def _calculate_actual_allocation(self, trades):
+        """実際の配分の計算"""
+        try:
+            # 簡易的な実際の配分計算
+            symbol_values = {}
+            total_value = 0
+            
+            for trade in trades:
+                symbol = trade.get('symbol', '')
+                value = float(trade.get('estimated_value', 0))
+                
+                if symbol not in symbol_values:
+                    symbol_values[symbol] = 0
+                
+                symbol_values[symbol] += value
+                total_value += value
+            
+            # パーセンテージに変換
+            if total_value > 0:
+                return {symbol: (value / total_value) * 100 for symbol, value in symbol_values.items()}
+            
+            return {}
+            
+        except Exception as e:
+            self.logger.error(f"実際の配分計算中にエラー発生: {e}")
+            return {}
+    
+    def _calculate_rebalancing_efficiency(self, trades):
+        """リバランシング効率の計算"""
+        try:
+            # 簡易的なリバランシング効率計算
+            rebalancing_trades = [t for t in trades if t.get('reason', '').startswith('rebalancing')]
+            total_trades = len(trades)
+            
+            if total_trades > 0:
+                return round(len(rebalancing_trades) / total_trades, 4)
+            
+            return 0
+            
+        except Exception as e:
+            self.logger.error(f"リバランシング効率計算中にエラー発生: {e}")
+            return 0
+    
+    def _calculate_allocation_drift(self, trades):
+        """配分ドリフトの計算"""
+        try:
+            # 簡易的な配分ドリフト計算
+            return 0.02  # 仮の値（実際の実装ではより詳細な計算が必要）
+        except Exception as e:
+            self.logger.error(f"配分ドリフト計算中にエラー発生: {e}")
+            return 0
+    
     def get_portfolio_summary(self):
         """ポートフォリオサマリーを取得"""
         try:
