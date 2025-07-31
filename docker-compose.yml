@@ -1,0 +1,67 @@
+services:
+  webull-rebalancer:
+    build: .
+    container_name: webull-portfolio-rebalancer
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./encrypted_config.json:/app/encrypted_config.json:ro
+      - ./portfolio.csv:/app/portfolio.csv:ro
+      - ./webull_config_docker.json:/app/webull_config_with_allocation.json:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=Asia/Tokyo
+      - WEBULL_USERNAME=Hiroka
+      - WEBULL_PASSWORD=Hiroka103/Pppp0157
+      - WEBULL_APP_KEY=ca0f603e7a6fde604a236a4db6ae1c05
+      - WEBULL_APP_SECRET=6acad5f331fe85bfb5ea59c385a27d13
+      - WEBULL_ACCOUNT_NUMBER=08040224131
+      - WEBULL_ACCOUNT_ID=08040224131
+      - WEBULL_USER_ID=08040224131
+      - LOG_LEVEL=INFO
+      - DRY_RUN=true
+    restart: unless-stopped
+    command: ["python3", "run_rebalancing.py", "--dry-run", "--verbose"]
+    
+  webull-rebalancer-live:
+    build: .
+    container_name: webull-portfolio-rebalancer-live
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./encrypted_config.json:/app/encrypted_config.json:ro
+      - ./portfolio.csv:/app/portfolio.csv:ro
+      - ./webull_config_docker.json:/app/webull_config_with_allocation.json:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=Asia/Tokyo
+      - WEBULL_USERNAME=Hiroka
+      - WEBULL_PASSWORD=Hiroka103/Pppp0157
+      - WEBULL_APP_KEY=ca0f603e7a6fde604a236a4db6ae1c05
+      - WEBULL_APP_SECRET=6acad5f331fe85bfb5ea59c385a27d13
+      - WEBULL_ACCOUNT_NUMBER=08040224131
+      - WEBULL_ACCOUNT_ID=08040224131
+      - WEBULL_USER_ID=08040224131
+      - LOG_LEVEL=INFO
+      - DRY_RUN=false
+    restart: unless-stopped
+    command: ["python3", "run_rebalancing.py", "--live", "--verbose"]
+    profiles:
+      - live
+
+  webull-rebalancer-test:
+    build: .
+    container_name: webull-portfolio-rebalancer-test
+    volumes:
+      - ./logs:/app/logs
+      - ./tests:/app/tests
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=Asia/Tokyo
+    command: ["python3", "-m", "pytest", "tests/", "-v"]
+    profiles:
+      - test
+
+volumes:
+  logs:
+  data:

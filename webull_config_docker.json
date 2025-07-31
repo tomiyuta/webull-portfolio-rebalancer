@@ -1,0 +1,48 @@
+{
+  "username": "Hiroka",
+  "password": "Hiroka103/Pppp0157",
+  "app_key": "ca0f603e7a6fde604a236a4db6ae1c05",
+  "app_secret": "6acad5f331fe85bfb5ea59c385a27d13",
+  "account_id": "08040224131",
+  "account_number": "08040224131",
+  "subscription_id": "",
+  "user_id": "08040224131",
+  "access_token": "",
+  "refresh_token": "",
+  "portfolio_config_file": "portfolio.csv",
+  "dry_run": true,
+  "api_settings": {
+    "max_retries": 3,
+    "retry_delay": 1,
+    "rate_limit_delay": 2
+  },
+  "trading_settings": {
+    "price_slippage": 0.01,
+    "min_order_amount": 1,
+    "max_order_amount": 10000,
+    "order_timeout": 300,
+    "conservative_price_margin": 0.0
+  },
+  "rebalancing_settings": {
+    "mode": "total_value",
+    "include_existing_positions": true,
+    "sell_existing_positions": true,
+    "min_trade_amount": 100,
+    "max_trade_amount": 10000,
+    "rebalance_threshold": 0.05
+  },
+  "logging_settings": {
+    "log_level": "INFO",
+    "log_to_file": true,
+    "log_to_console": true
+  },
+  "portfolio_name": "Hiroka Portfolio (portfolio.csv)",
+  "description": "Hiroka用のポートフォリオ設定",
+  "target_allocation": {
+    "XLU": 30.0,
+    "TQQQ": 30.0,
+    "TECL": 20.0,
+    "GLD": 15.0,
+    "NUGT": 5.0
+  }
+}
