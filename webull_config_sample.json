@@ -1,10 +1,10 @@
 {
-  "username": "your_webull_username",
-  "password": "your_webull_password",
-  "app_key": "your_api_key_from_webull_portal",
-  "app_secret": "your_api_secret_from_webull_portal",
+  "username": "",
+  "password": "",
+  "app_key": "",
+  "app_secret": "",
   "account_id": "",
-  "account_number": "your_account_number_from_webull_app",
+  "account_number": "",
   "subscription_id": "",
   "user_id": "",
   "access_token": "",
@@ -39,9 +39,10 @@
   "portfolio_name": "CSV Portfolio (portfolio.csv)",
   "description": "CSVファイルから読み込まれたポートフォリオ設定",
   "target_allocation": {
-    "XLU": 32.2,
-    "TQQQ": 32.2,
-    "TECL": 21.5,
-    "GLD": 14.1
+    "XLU": 30.0,
+    "TQQQ": 30.0,
+    "TECL": 20.0,
+    "GLD": 15.0,
+    "NUGT": 5.0
   }
 } 

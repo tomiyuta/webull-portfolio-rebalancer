@@ -63,6 +63,13 @@ webull_config_with_allocation.json
 *.session
 did.bin
 
+# Personal trading data
+data/trades.csv
+data/trades_backup.csv
+data/trades_original.csv
+data/performance_analysis_*.json
+data/*_trades_results_*.json
+
 # Temporary files
 *.tmp
 *.temp 
