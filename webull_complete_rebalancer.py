@@ -392,6 +392,10 @@ class WebullCompleteRebalancer:
                 
                 # その他のエラー
                 self.logger.error(f"API呼び出し失敗 (試行 {attempt + 1}/{max_retries}): {response.status_code} - {response.text}")
+                
+                # エラーの詳細分析
+                self._analyze_api_error(response.status_code, response.text, api_name)
+                
                 if attempt == max_retries - 1:
                     return response
                 
@@ -1490,8 +1494,12 @@ class WebullCompleteRebalancer:
                         self.logger.error(f"❌ 購入資金不足: {symbol}")
                     elif "INVALID_SYMBOL" in error_msg:
                         self.logger.error(f"❌ 無効な銘柄: {symbol}")
+                        # INVALID_SYMBOLエラーの詳細分析と対策
+                        return self._handle_invalid_symbol_error(symbol, quantity, instrument_id, current_price)
                     elif "INVALID_INSTRUMENT_ID" in error_msg:
                         self.logger.error(f"❌ 無効なinstrument_id: {symbol} ({instrument_id})")
+                        # INVALID_INSTRUMENT_IDエラーの詳細分析と対策
+                        return self._handle_invalid_instrument_id_error(symbol, quantity, instrument_id, current_price)
                 
                 return False
                 
@@ -1727,6 +1735,441 @@ class WebullCompleteRebalancer:
         
         self.logger.info("==========================")
     
+    def _handle_invalid_symbol_error(self, symbol, quantity, instrument_id, current_price):
+        """INVALID_SYMBOLエラーの詳細分析と対策"""
+        try:
+            self.logger.info(f"🔍 INVALID_SYMBOLエラーの詳細分析開始: {symbol}")
+            
+            # ステップ1: 銘柄の存在確認
+            self.logger.info("ステップ1: 銘柄の存在確認")
+            
+            # 複数のカテゴリで銘柄検索を試行
+            categories = ['US_STOCK', 'US_ETF', 'US_OPTION']
+            found_instrument_id = None
+            found_category = None
+            
+            for category in categories:
+                try:
+                    self.logger.info(f"  {category}カテゴリで検索中...")
+                    instrument_id_result = self._get_instrument_id_from_api(symbol, category)
+                    if instrument_id_result:
+                        found_instrument_id = instrument_id_result
+                        found_category = category
+                        self.logger.info(f"  ✅ {category}カテゴリで発見: {found_instrument_id}")
+                        break
+                    else:
+                        self.logger.info(f"  ❌ {category}カテゴリでは見つかりませんでした")
+                except Exception as e:
+                    self.logger.warning(f"  ⚠️ {category}カテゴリ検索エラー: {e}")
+                    continue
+            
+            # ステップ2: 代替銘柄の提案
+            if not found_instrument_id:
+                self.logger.warning("ステップ2: 代替銘柄の提案")
+                alternative_symbols = self._suggest_alternative_symbols(symbol)
+                if alternative_symbols:
+                    self.logger.info(f"代替銘柄候補: {alternative_symbols}")
+                    # 最初の代替銘柄で再試行
+                    alternative_symbol = alternative_symbols[0]
+                    self.logger.info(f"代替銘柄で再試行: {alternative_symbol}")
+                    return self._retry_with_alternative_symbol(alternative_symbol, quantity, current_price)
+                else:
+                    self.logger.error("代替銘柄が見つかりませんでした")
+                    return False
+            
+            # ステップ3: 正しいinstrument_idで再試行
+            if found_instrument_id and found_instrument_id != instrument_id:
+                self.logger.info(f"ステップ3: 正しいinstrument_idで再試行")
+                self.logger.info(f"  元のinstrument_id: {instrument_id}")
+                self.logger.info(f"  正しいinstrument_id: {found_instrument_id}")
+                self.logger.info(f"  カテゴリ: {found_category}")
+                
+                # 正しいinstrument_idで再試行
+                return self._retry_with_correct_instrument_id(symbol, quantity, found_instrument_id, current_price)
+            
+            # ステップ4: その他の対策
+            self.logger.warning("ステップ4: その他の対策を試行")
+            return self._try_alternative_trading_methods(symbol, quantity, instrument_id, current_price)
+            
+        except Exception as e:
+            self.logger.error(f"INVALID_SYMBOLエラー処理中にエラー発生: {e}")
+            return False
+    
+    def _suggest_alternative_symbols(self, symbol):
+        """代替銘柄を提案"""
+        try:
+            # 一般的な代替銘柄マッピング
+            symbol_mapping = {
+                'SPY': ['SPY', 'VOO', 'IVV'],  # S&P 500 ETF
+                'QQQ': ['QQQ', 'TQQQ', 'QLD'],  # NASDAQ ETF
+                'IWM': ['IWM', 'TNA', 'UWM'],   # Russell 2000 ETF
+                'GLD': ['GLD', 'IAU', 'SGOL'],  # Gold ETF
+                'SLV': ['SLV', 'PSLV', 'SIVR'], # Silver ETF
+                'XLU': ['XLU', 'VPU', 'IDU'],   # Utilities ETF
+                'TECL': ['TECL', 'SOXL', 'TMF'], # Technology Leveraged ETF
+                'NUGT': ['NUGT', 'JNUG', 'DUST'] # Gold Miners Leveraged ETF
+            }
+            
+            # 完全一致
+            if symbol in symbol_mapping:
+                return symbol_mapping[symbol]
+            
+            # 部分一致
+            alternatives = []
+            for key, values in symbol_mapping.items():
+                if symbol in key or key in symbol:
+                    alternatives.extend(values)
+            
+            # 重複を除去
+            alternatives = list(set(alternatives))
+            
+            if alternatives:
+                self.logger.info(f"代替銘柄候補: {alternatives}")
+                return alternatives
+            
+            return []
+            
+        except Exception as e:
+            self.logger.error(f"代替銘柄提案エラー: {e}")
+            return []
+    
+    def _retry_with_alternative_symbol(self, alternative_symbol, quantity, current_price):
+        """代替銘柄で再試行"""
+        try:
+            self.logger.info(f"代替銘柄で再試行: {alternative_symbol}")
+            
+            # 代替銘柄のinstrument_idを取得
+            alternative_instrument_id = self.get_instrument_id(alternative_symbol)
+            if not alternative_instrument_id:
+                self.logger.error(f"代替銘柄のinstrument_id取得失敗: {alternative_symbol}")
+                return False
+            
+            # 代替銘柄の価格を取得
+            alternative_price = self.get_stock_price(alternative_symbol)
+            if not alternative_price:
+                self.logger.error(f"代替銘柄の価格取得失敗: {alternative_symbol}")
+                return False
+            
+            # 代替銘柄で注文を再試行
+            self.logger.info(f"代替銘柄で注文再試行: {alternative_symbol} (価格: ${alternative_price})")
+            
+            # 注文パラメータを調整
+            adjusted_quantity = int((quantity * current_price) / alternative_price)
+            if adjusted_quantity <= 0:
+                self.logger.error(f"調整後の数量が0以下: {adjusted_quantity}")
+                return False
+            
+            # 注文を再試行
+            return self.place_order({
+                'symbol': alternative_symbol,
+                'action': 'BUY',
+                'quantity': adjusted_quantity,
+                'price': alternative_price
+            }, alternative_instrument_id)
+            
+        except Exception as e:
+            self.logger.error(f"代替銘柄再試行エラー: {e}")
+            return False
+    
+    def _retry_with_correct_instrument_id(self, symbol, quantity, correct_instrument_id, current_price):
+        """正しいinstrument_idで再試行"""
+        try:
+            self.logger.info(f"正しいinstrument_idで再試行: {symbol}")
+            
+            # 正しいinstrument_idで注文を再試行
+            return self.place_order({
+                'symbol': symbol,
+                'action': 'BUY',
+                'quantity': quantity,
+                'price': current_price
+            }, correct_instrument_id)
+            
+        except Exception as e:
+            self.logger.error(f"正しいinstrument_id再試行エラー: {e}")
+            return False
+    
+    def _try_alternative_trading_methods(self, symbol, quantity, instrument_id, current_price):
+        """その他の取引方法を試行"""
+        try:
+            self.logger.info(f"その他の取引方法を試行: {symbol}")
+            
+            # 方法1: 価格を少し上げて再試行
+            self.logger.info("方法1: 価格を少し上げて再試行")
+            adjusted_price = current_price * 1.01  # 1%上げ
+            
+            result = self.place_order({
+                'symbol': symbol,
+                'action': 'BUY',
+                'quantity': quantity,
+                'price': adjusted_price
+            }, instrument_id)
+            
+            if result:
+                self.logger.info("✅ 価格調整で成功")
+                return True
+            
+            # 方法2: 数量を少し減らして再試行
+            self.logger.info("方法2: 数量を少し減らして再試行")
+            adjusted_quantity = max(1, int(quantity * 0.95))  # 5%減
+            
+            result = self.place_order({
+                'symbol': symbol,
+                'action': 'BUY',
+                'quantity': adjusted_quantity,
+                'price': current_price
+            }, instrument_id)
+            
+            if result:
+                self.logger.info("✅ 数量調整で成功")
+                return True
+            
+            self.logger.error("❌ すべての代替方法が失敗")
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"代替取引方法エラー: {e}")
+            return False
+    
+    def _handle_invalid_instrument_id_error(self, symbol, quantity, instrument_id, current_price):
+        """INVALID_INSTRUMENT_IDエラーの詳細分析と対策"""
+        try:
+            self.logger.info(f"🔍 INVALID_INSTRUMENT_IDエラーの詳細分析開始: {symbol}")
+            
+            # ステップ1: キャッシュのクリア
+            self.logger.info("ステップ1: キャッシュのクリア")
+            self.clear_instrument_id_cache()
+            self.logger.info("instrument_idキャッシュをクリアしました")
+            
+            # ステップ2: 新しいinstrument_idの取得
+            self.logger.info("ステップ2: 新しいinstrument_idの取得")
+            new_instrument_id = self.get_instrument_id(symbol)
+            
+            if new_instrument_id and new_instrument_id != instrument_id:
+                self.logger.info(f"新しいinstrument_idを取得: {new_instrument_id}")
+                self.logger.info(f"  元のinstrument_id: {instrument_id}")
+                self.logger.info(f"  新しいinstrument_id: {new_instrument_id}")
+                
+                # 新しいinstrument_idで再試行
+                return self._retry_with_correct_instrument_id(symbol, quantity, new_instrument_id, current_price)
+            
+            # ステップ3: 複数カテゴリでの検索
+            if not new_instrument_id:
+                self.logger.info("ステップ3: 複数カテゴリでの検索")
+                categories = ['US_STOCK', 'US_ETF', 'US_OPTION']
+                
+                for category in categories:
+                    try:
+                        self.logger.info(f"  {category}カテゴリで検索中...")
+                        category_instrument_id = self._get_instrument_id_from_api(symbol, category)
+                        if category_instrument_id:
+                            self.logger.info(f"  ✅ {category}カテゴリで発見: {category_instrument_id}")
+                            return self._retry_with_correct_instrument_id(symbol, quantity, category_instrument_id, current_price)
+                        else:
+                            self.logger.info(f"  ❌ {category}カテゴリでは見つかりませんでした")
+                    except Exception as e:
+                        self.logger.warning(f"  ⚠️ {category}カテゴリ検索エラー: {e}")
+                        continue
+            
+            # ステップ4: ポジションからの取得
+            self.logger.info("ステップ4: ポジションからの取得")
+            position_instrument_id = self._get_instrument_id_from_positions(symbol)
+            if position_instrument_id and position_instrument_id != instrument_id:
+                self.logger.info(f"ポジションからinstrument_idを取得: {position_instrument_id}")
+                return self._retry_with_correct_instrument_id(symbol, quantity, position_instrument_id, current_price)
+            
+            # ステップ5: その他の対策
+            self.logger.warning("ステップ5: その他の対策を試行")
+            return self._try_alternative_trading_methods(symbol, quantity, instrument_id, current_price)
+            
+        except Exception as e:
+            self.logger.error(f"INVALID_INSTRUMENT_IDエラー処理中にエラー発生: {e}")
+            return False
+    
+    def _analyze_api_error(self, status_code, error_text, api_name):
+        """APIエラーの詳細分析"""
+        try:
+            self.logger.info(f"🔍 APIエラーの詳細分析: {api_name} (ステータス: {status_code})")
+            
+            # エラーの分類
+            error_category = self._categorize_api_error(status_code, error_text)
+            self.logger.info(f"エラーカテゴリ: {error_category}")
+            
+            # エラーの詳細情報
+            error_details = self._extract_error_details(error_text)
+            if error_details:
+                self.logger.info(f"エラー詳細: {error_details}")
+            
+            # 推奨対策の提示
+            recommendations = self._get_error_recommendations(error_category, api_name)
+            if recommendations:
+                self.logger.info("推奨対策:")
+                for i, recommendation in enumerate(recommendations, 1):
+                    self.logger.info(f"  {i}. {recommendation}")
+            
+            # エラー統計の更新
+            self._update_error_stats(error_category, api_name)
+            
+        except Exception as e:
+            self.logger.error(f"エラー分析中にエラー発生: {e}")
+    
+    def _categorize_api_error(self, status_code, error_text):
+        """APIエラーをカテゴリに分類"""
+        try:
+            # ステータスコードベースの分類
+            if status_code == 400:
+                if "INVALID_SYMBOL" in error_text:
+                    return "INVALID_SYMBOL"
+                elif "INVALID_INSTRUMENT_ID" in error_text:
+                    return "INVALID_INSTRUMENT_ID"
+                elif "ORDER_BUYING_POWER_NOT_ENOUGH" in error_text:
+                    return "INSUFFICIENT_FUNDS"
+                elif "CASH_ACCOUNT_NOT_ALLOW_SELL_SHORT" in error_text:
+                    return "CASH_ACCOUNT_RESTRICTION"
+                else:
+                    return "BAD_REQUEST"
+            elif status_code == 401:
+                return "AUTHENTICATION_ERROR"
+            elif status_code == 403:
+                return "AUTHORIZATION_ERROR"
+            elif status_code == 404:
+                return "NOT_FOUND"
+            elif status_code == 429:
+                return "RATE_LIMIT"
+            elif 500 <= status_code < 600:
+                return "SERVER_ERROR"
+            else:
+                return "UNKNOWN_ERROR"
+                
+        except Exception as e:
+            self.logger.error(f"エラー分類中にエラー発生: {e}")
+            return "UNKNOWN_ERROR"
+    
+    def _extract_error_details(self, error_text):
+        """エラーテキストから詳細情報を抽出"""
+        try:
+            # JSON形式のエラーレスポンスを解析
+            if error_text.startswith('{'):
+                try:
+                    error_data = json.loads(error_text)
+                    details = {}
+                    
+                    # 一般的なエラーフィールドを抽出
+                    for field in ['code', 'msg', 'message', 'error', 'details']:
+                        if field in error_data:
+                            details[field] = error_data[field]
+                    
+                    return details
+                except json.JSONDecodeError:
+                    pass
+            
+            # プレーンテキストの場合はそのまま返す
+            return {'raw_error': error_text}
+            
+        except Exception as e:
+            self.logger.error(f"エラー詳細抽出中にエラー発生: {e}")
+            return None
+    
+    def _get_error_recommendations(self, error_category, api_name):
+        """エラーカテゴリに基づく推奨対策を取得"""
+        recommendations = {
+            'INVALID_SYMBOL': [
+                "銘柄シンボルの正確性を確認してください",
+                "複数のカテゴリ（US_STOCK, US_ETF）で検索を試行してください",
+                "代替銘柄の使用を検討してください"
+            ],
+            'INVALID_INSTRUMENT_ID': [
+                "instrument_idキャッシュをクリアしてください",
+                "新しいinstrument_idを取得してください",
+                "複数カテゴリでの検索を試行してください"
+            ],
+            'INSUFFICIENT_FUNDS': [
+                "口座残高を確認してください",
+                "注文数量を減らしてください",
+                "購入資金の追加を検討してください"
+            ],
+            'CASH_ACCOUNT_RESTRICTION': [
+                "マージンアカウントへの変更を検討してください",
+                "利用可能資金ベースのリバランスを試行してください",
+                "手動での売却を検討してください"
+            ],
+            'AUTHENTICATION_ERROR': [
+                "API認証情報を確認してください",
+                "トークンの有効期限を確認してください",
+                "再認証を実行してください"
+            ],
+            'AUTHORIZATION_ERROR': [
+                "アカウント権限を確認してください",
+                "APIアクセス権限を確認してください",
+                "Webullサポートに問い合わせてください"
+            ],
+            'RATE_LIMIT': [
+                "API呼び出し頻度を下げてください",
+                "待機時間を増やしてください",
+                "バッチ処理の使用を検討してください"
+            ],
+            'SERVER_ERROR': [
+                "しばらく待ってから再試行してください",
+                "Webullサーバーの状況を確認してください",
+                "メンテナンス時間外での実行を検討してください"
+            ],
+            'UNKNOWN_ERROR': [
+                "エラーログを詳細に確認してください",
+                "Webullサポートに問い合わせてください",
+                "システム管理者に報告してください"
+            ]
+        }
+        
+        return recommendations.get(error_category, ["詳細な調査が必要です"])
+    
+    def _update_error_stats(self, error_category, api_name):
+        """エラー統計を更新"""
+        try:
+            # エラー統計の初期化（初回のみ）
+            if not hasattr(self, '_error_stats'):
+                self._error_stats = {
+                    'total_errors': 0,
+                    'error_categories': {},
+                    'api_errors': {}
+                }
+            
+            # 統計を更新
+            self._error_stats['total_errors'] += 1
+            self._error_stats['error_categories'][error_category] = self._error_stats['error_categories'].get(error_category, 0) + 1
+            self._error_stats['api_errors'][api_name] = self._error_stats['api_errors'].get(api_name, 0) + 1
+            
+        except Exception as e:
+            self.logger.error(f"エラー統計更新中にエラー発生: {e}")
+    
+    def get_error_stats(self):
+        """エラー統計情報を取得"""
+        if not hasattr(self, '_error_stats'):
+            return {
+                'total_errors': 0,
+                'error_categories': {},
+                'api_errors': {}
+            }
+        
+        return self._error_stats.copy()
+    
+    def print_error_stats(self):
+        """エラー統計情報を表示"""
+        stats = self.get_error_stats()
+        
+        self.logger.info("=== エラー統計情報 ===")
+        self.logger.info(f"総エラー数: {stats['total_errors']}")
+        
+        if stats['error_categories']:
+            self.logger.info("エラーカテゴリ別統計:")
+            for category, count in sorted(stats['error_categories'].items(), key=lambda x: x[1], reverse=True):
+                self.logger.info(f"  {category}: {count}回")
+        
+        if stats['api_errors']:
+            self.logger.info("API別エラー統計:")
+            for api_name, count in sorted(stats['api_errors'].items(), key=lambda x: x[1], reverse=True):
+                self.logger.info(f"  {api_name}: {count}回")
+        
+        self.logger.info("======================")
+    
     def save_trades_to_csv(self, trades):
         """取引履歴をCSVに保存"""
         if trades:
@@ -1937,6 +2380,9 @@ class WebullCompleteRebalancer:
                                 
                                 # レート制限統計情報を表示
                                 self.print_rate_limit_stats()
+                                
+                                # エラー統計情報を表示
+                                self.print_error_stats()
                             else:
                                 self.logger.error("❌ 段階的リバランシング失敗: すべての取引が失敗")
                         else:
