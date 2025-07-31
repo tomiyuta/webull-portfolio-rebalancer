@@ -14,6 +14,9 @@ Webull APIを使用した自動ポートフォリオリバランシングボッ�
 - **アカウントID自動取得**: 設定ファイルの手動更新不要
 - **マルチアカウント対応**: 簡単なアカウント切り替え
 - **設定ファイル自動更新**: 実行時に必要な情報を自動保存
+- **データ品質管理**: 取引履歴の自動検証と修正
+- **パフォーマンス分析**: 取引結果の詳細分析と改善提案
+- **取引結果追跡**: 期間指定での取引結果追跡とトレンド分析
 
 ## 前提条件
 
@@ -199,6 +202,26 @@ GLD,14.1
 
 ## 使用方法
 
+### パフォーマンス分析と取引結果追跡
+
+**パフォーマンス分析の実行:**
+```bash
+# 過去30日間のパフォーマンス分析
+docker run --rm -v $(pwd):/app webullbot python3 -c "from webull_complete_rebalancer import WebullCompleteRebalancer; rebalancer = WebullCompleteRebalancer(); rebalancer.analyze_performance('30d')"
+
+# 過去7日間のパフォーマンス分析
+docker run --rm -v $(pwd):/app webullbot python3 -c "from webull_complete_rebalancer import WebullCompleteRebalancer; rebalancer = WebullCompleteRebalancer(); rebalancer.analyze_performance('7d')"
+```
+
+**取引結果追跡の実行:**
+```bash
+# 過去7日間の取引結果追跡
+docker run --rm -v $(pwd):/app webullbot python3 -c "from webull_complete_rebalancer import WebullCompleteRebalancer; rebalancer = WebullCompleteRebalancer(); rebalancer.track_trade_results(days=7)"
+
+# 特定の取引IDの追跡
+docker run --rm -v $(pwd):/app webullbot python3 -c "from webull_complete_rebalancer import WebullCompleteRebalancer; rebalancer = WebullCompleteRebalancer(); rebalancer.track_trade_results(trade_id='TRADE_001')"
+```
+
 ### Dockerを使用した実行（推奨）
 
 **ドライラン（テスト実行）:**
@@ -272,8 +295,10 @@ webullbot/
 ├── webull_config_with_allocation.json  # 実際の設定ファイル（.gitignoreで除外）
 ├── portfolio.csv                  # ポートフォリオ配分設定
 ├── data/
-│   ├── trades.csv                 # 取引ログ
-│   └── trades_example.csv         # サンプル取引ログ
+│   ├── trades.csv                 # 取引ログ（自動検証・修正機能付き）
+│   ├── trades_example.csv         # サンプル取引ログ
+│   ├── performance_analysis_*.json # パフォーマンス分析結果
+│   └── *_trades_results_*.json    # 取引結果追跡データ
 ├── logs/                          # ログファイル（.gitignoreで除外）
 ├── requirements.txt               # Python依存関係
 ├── Dockerfile                     # Dockerコンテナ定義
@@ -319,6 +344,8 @@ webullbot/
 - 詳細な取引ログ
 - エラーログ
 - パフォーマンス追跡
+- データ品質監視
+- 取引履歴の自動検証
 
 ## 設定オプション
 
@@ -406,6 +433,17 @@ SYMBOL2,PERCENTAGE2
    - Dockerデーモンが起動しているか確認
    - ポートが競合していないか確認
 
+6. **取引履歴データ品質エラー**
+   - `data/trades.csv`の構造を確認
+   - 日付フォーマットの統一性を確認
+   - 欠損値の処理状況を確認
+   - データ検証機能が正常に動作しているか確認
+
+7. **パフォーマンス分析エラー**
+   - 分析期間内に取引データが存在するか確認
+   - 取引履歴の日付フォーマットを確認
+   - 必要なデータフィールドが存在するか確認
+
 ### ログの確認
 
 ```bash
@@ -417,6 +455,15 @@ grep "ERROR" logs/webullbot.log
 
 # Dockerログの確認
 docker logs <container_id>
+
+# 取引履歴の確認
+head -10 data/trades.csv
+
+# パフォーマンス分析結果の確認
+ls -la data/performance_analysis_*.json
+
+# 取引結果追跡データの確認
+ls -la data/*_trades_results_*.json
 ```
 
 ### アカウント変更時の確認事項
@@ -443,11 +490,44 @@ docker logs <container_id>
   - `webull_config_with_allocation.json`: 実際の設定ファイル
   - `webullkey.txt`, `webullkey2.txt`: 個人のAPIキー情報
   - `logs/`: 実行ログ（個人情報が含まれる可能性）
+  - `data/trades.csv`: 取引履歴（個人の取引情報）
+  - `data/performance_analysis_*.json`: パフォーマンス分析結果
+  - `data/*_trades_results_*.json`: 取引結果追跡データ
 - **初回セットアップ**: `webull_config_sample.json`をコピーして使用してください
 
 ## 免責事項
 
 このボットは教育目的で作成されています。実際の取引には十分な注意を払い、リスクを理解した上で使用してください。作者は取引結果について一切の責任を負いません。
+
+## データ品質管理
+
+### 取引履歴の自動検証
+
+システムは取引履歴の保存時に自動的にデータ品質を検証し、以下の処理を行います：
+
+- **フィールド数の統一**: 全取引レコードのフィールド数を統一
+- **日付フォーマットの標準化**: 複数の日付フォーマットに対応
+- **数値データの型変換**: 適切なデータ型への自動変換
+- **欠損値の処理**: 空の値を適切なデフォルト値で補完
+- **データの正規化**: action、symbolフィールドの統一
+
+### パフォーマンス分析機能
+
+- **取引パフォーマンス分析**: 成功率、取引サイズ、取引頻度の分析
+- **ポートフォリオパフォーマンス分析**: 買い/売りボリューム、回転率の分析
+- **リスク指標分析**: ボラティリティ、最大ドローダウン、シャープレシオの計算
+- **実行品質分析**: 実行速度、価格精度、約定品質の評価
+- **コスト分析**: 手数料、スリッページ、コスト効率の分析
+- **ベンチマーク比較**: SPY等との相対パフォーマンス分析
+- **改善提案の自動生成**: データ駆動の改善提案
+
+### 取引結果追跡機能
+
+- **期間指定追跡**: 任意の期間での取引結果追跡
+- **特定取引追跡**: 取引ID指定での詳細追跡
+- **セッション追跡**: セッション全体の結果追跡
+- **トレンド分析**: 実行品質と成功率のトレンド分析
+- **改善提案**: 取引結果に基づく改善提案の生成
 
 ## ライセンス
 
@@ -468,4 +548,13 @@ docker logs <container_id>
   - アカウントID、Subscription ID、User IDの自動取得機能
   - 新しいアカウントへの簡単な切り替え機能
   - 設定ファイルの自動更新機能
-  - エラーハンドリングの改善 
+  - エラーハンドリングの改善
+- v1.5.0: 取引履歴の完全化とデータ品質改善
+  - CSVファイル構造の修正とフィールド数の統一
+  - 日付フォーマットの標準化（複数フォーマット対応）
+  - 欠損値の適切な処理とデータ型の統一
+  - データ検証機能の実装（`_validate_trade_data`メソッド）
+  - 取引履歴保存機能の改善
+  - パフォーマンス分析機能の動作確認
+  - 取引結果追跡機能の動作確認
+  - エラーハンドリングの強化 
