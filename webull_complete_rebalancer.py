@@ -1345,7 +1345,7 @@ class WebullCompleteRebalancer:
             
             # 売却の場合は異なる注文タイプを試行
             if action == "SELL":
-                # Webull APIサンプルコードに従ってSELL注文を設定
+                # 現在のSDKに合わせてSELL注文を設定
                 stock_order = {
                     "client_order_id": client_order_id,
                     "instrument_id": str(instrument_id),  # 必須パラメータ
@@ -1356,7 +1356,7 @@ class WebullCompleteRebalancer:
                     "limit_price": f"{limit_price:.2f}",  # 指値価格を設定
                     "qty": str(int(quantity)),  # 文字列として送信
                     "trade_currency": "USD",  # 必須パラメータ
-                    "account_tax_type": "SPECIFIC"  # Webull APIサンプルコードに従ってSPECIFICに設定
+                    "account_tax_type": "GENERAL"  # 提供されたコードに合わせてGENERALに修正
                 }
                 self.logger.info(f"LIMIT注文で売却を試行: {symbol}")
             else:
@@ -1371,7 +1371,7 @@ class WebullCompleteRebalancer:
                     "limit_price": f"{limit_price:.2f}",
                     "qty": str(int(quantity)),  # 文字列として送信
                     "trade_currency": "USD",  # 必須パラメータ
-                    "account_tax_type": "GENERAL"
+                    "account_tax_type": "SPECIFIC"  # 画像のサンプルコードに合わせてSPECIFICに修正
                 }
             
             # キャッシュアカウントでの売却の場合、Webull APIドキュメントに従ってパラメータを設定
@@ -1383,8 +1383,9 @@ class WebullCompleteRebalancer:
             
             self.logger.info(f"注文パラメータ: {stock_order}")
             
-            # リトライ機能付きで注文を発注（Webull API準拠）
+            # リトライ機能付きで注文を発注（現在のSDKに合わせて修正）
             def api_call():
+                # 現在のSDKでは従来のAPIメソッドを使用
                 return self.api.order.place_order_v2(account_id=self.account_id, stock_order=stock_order)
             
             response = self.api_call_with_retry(api_call, max_retries=3, delay=2, api_name="place_order_v2")
