@@ -1,0 +1,160 @@
+{
+  "period": "過去7日間",
+  "total_trades": 10,
+  "trades": [
+    {
+      "symbol": "NUGT",
+      "action": "SELL",
+      "quantity": "50.0",
+      "estimated_value": "0.0",
+      "current_price": "0.0",
+      "target_quantity": "0",
+      "current_quantity": "0",
+      "remaining_cash_before": "0.0",
+      "remaining_cash_after": "0.0",
+      "timestamp": "2025-07-31 03:37:32.061389"
+    },
+    {
+      "symbol": "SIL",
+      "action": "SELL",
+      "quantity": "50.0",
+      "estimated_value": "0.0",
+      "current_price": "0.0",
+      "target_quantity": "0",
+      "current_quantity": "0",
+      "remaining_cash_before": "0.0",
+      "remaining_cash_after": "0.0",
+      "timestamp": "2025-07-31 03:37:32.061397"
+    },
+    {
+      "symbol": "PLTR",
+      "action": "SELL",
+      "quantity": "44.0",
+      "estimated_value": "0.0",
+      "current_price": "0.0",
+      "target_quantity": "0",
+      "current_quantity": "0",
+      "remaining_cash_before": "0.0",
+      "remaining_cash_after": "0.0",
+      "timestamp": "2025-07-31 03:37:32.061402"
+    },
+    {
+      "symbol": "NUGT",
+      "action": "SELL",
+      "quantity": "50.0",
+      "estimated_value": "0.0",
+      "current_price": "0.0",
+      "target_quantity": "0",
+      "current_quantity": "0",
+      "remaining_cash_before": "0.0",
+      "remaining_cash_after": "0.0",
+      "timestamp": "2025-07-31 03:37:32.061406"
+    },
+    {
+      "symbol": "SIL",
+      "action": "SELL",
+      "quantity": "50.0",
+      "estimated_value": "0.0",
+      "current_price": "0.0",
+      "target_quantity": "0",
+      "current_quantity": "0",
+      "remaining_cash_before": "0.0",
+      "remaining_cash_after": "0.0",
+      "timestamp": "2025-07-31 03:37:32.061410"
+    },
+    {
+      "symbol": "PLTR",
+      "action": "SELL",
+      "quantity": "44.0",
+      "estimated_value": "0.0",
+      "current_price": "0.0",
+      "target_quantity": "0",
+      "current_quantity": "0",
+      "remaining_cash_before": "0.0",
+      "remaining_cash_after": "0.0",
+      "timestamp": "2025-07-31 03:37:32.061414"
+    },
+    {
+      "symbol": "XLU",
+      "action": "SELL",
+      "quantity": "2.0",
+      "estimated_value": "170.3624",
+      "current_price": "85.1812",
+      "target_quantity": "0",
+      "current_quantity": "0",
+      "remaining_cash_before": "0.0",
+      "remaining_cash_after": "0.0",
+      "timestamp": "2025-07-31 03:32:50.433321"
+    },
+    {
+      "symbol": "TECL",
+      "action": "SELL",
+      "quantity": "2.0",
+      "estimated_value": "219.4940740740741",
+      "current_price": "109.74703703703705",
+      "target_quantity": "0",
+      "current_quantity": "0",
+      "remaining_cash_before": "0.0",
+      "remaining_cash_after": "0.0",
+      "timestamp": "2025-07-31 03:32:50.433321"
+    },
+    {
+      "symbol": "TQQQ",
+      "action": "SELL",
+      "quantity": "3.0",
+      "estimated_value": "277.4017021276596",
+      "current_price": "92.46723404255319",
+      "target_quantity": "0",
+      "current_quantity": "0",
+      "remaining_cash_before": "0.0",
+      "remaining_cash_after": "0.0",
+      "timestamp": "2025-07-31 03:32:50.433321"
+    },
+    {
+      "symbol": "NUGT",
+      "action": "BUY",
+      "quantity": "1.0",
+      "estimated_value": "72.8",
+      "current_price": "72.8",
+      "target_quantity": "0",
+      "current_quantity": "9",
+      "remaining_cash_before": "0.0",
+      "remaining_cash_after": "77.05",
+      "timestamp": "2025-07-31 03:32:50.433321"
+    }
+  ],
+  "trend_analysis": {
+    "quality_trend": "STABLE",
+    "success_trend": "STABLE",
+    "volume_trend": "STABLE"
+  },
+  "performance_summary": {
+    "buy_trades": 1,
+    "sell_trades": 9,
+    "total_volume": 296.0,
+    "total_value": 740.0581762017337,
+    "successful_trades": 0,
+    "failed_trades": 0,
+    "symbols_traded": [
+      "PLTR",
+      "SIL",
+      "TQQQ",
+      "XLU",
+      "NUGT",
+      "TECL"
+    ],
+    "sessions": []
+  },
+  "risk_metrics": {
+    "max_drawdown": 0,
+    "volatility": 0,
+    "sharpe_ratio": 0,
+    "win_rate": 0,
+    "average_win": 0,
+    "average_loss": 0
+  },
+  "improvement_suggestions": [
+    "成功率の改善が必要です。エラー分析を確認してください。",
+    "実行品質の向上が必要です。価格設定とタイミングを改善してください。"
+  ]
+}

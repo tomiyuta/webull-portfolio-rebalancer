@@ -1,0 +1,145 @@
+{
+  "period": "7d",
+  "analysis_date": "2025-07-31T03:40:31.944294",
+  "trade_performance": {
+    "total_trades": 10,
+    "successful_trades": 0,
+    "failed_trades": 10,
+    "success_rate": 0.0,
+    "total_volume": 296.0,
+    "total_value": 740.0581762017337,
+    "average_trade_size": 74.01,
+    "trade_frequency": 0.33,
+    "execution_times": [],
+    "fill_rates": [],
+    "price_improvements": []
+  },
+  "portfolio_performance": {
+    "total_return": 0,
+    "buy_volume": 72.8,
+    "sell_volume": 667.2581762017337,
+    "net_position_change": -594.4581762017337,
+    "cash_flow": 594.4581762017337,
+    "position_turnover": 2.0,
+    "diversification_metrics": {
+      "symbols_traded": 6,
+      "symbol_diversity": 6,
+      "concentration_risk": 0.2911
+    },
+    "allocation_efficiency": {
+      "target_vs_actual": {
+        "target_allocation": {
+          "portfolio_name": "CSV Portfolio (portfolio.csv)",
+          "description": "CSVファイルから読み込まれたポートフォリオ設定",
+          "target_allocation": {
+            "XLU": 30.0,
+            "TQQQ": 30.0,
+            "TECL": 20.0,
+            "GLD": 15.0,
+            "NUGT": 5.0
+          }
+        },
+        "actual_allocation": {
+          "NUGT": 9.837064482367847,
+          "SIL": 0.0,
+          "PLTR": 0.0,
+          "XLU": 23.020136183666814,
+          "TECL": 29.659029672586424,
+          "TQQQ": 37.483769661378915
+        },
+        "allocation_drift": 0.05
+      },
+      "rebalancing_efficiency": 0.0,
+      "allocation_drift": 0.02
+    }
+  },
+  "risk_metrics": {
+    "volatility": 0,
+    "max_drawdown": 0,
+    "var_95": 0,
+    "sharpe_ratio": 0,
+    "sortino_ratio": 0,
+    "calmar_ratio": 0,
+    "win_rate": 0,
+    "profit_factor": 0,
+    "average_win": 0,
+    "average_loss": 0,
+    "largest_win": 0,
+    "largest_loss": 0,
+    "consecutive_wins": 0,
+    "consecutive_losses": 0
+  },
+  "execution_quality": {
+    "overall_quality_score": 0,
+    "speed_metrics": {},
+    "accuracy_metrics": {},
+    "fill_metrics": {},
+    "impact_metrics": {},
+    "timing_metrics": {},
+    "quality_distribution": {}
+  },
+  "cost_analysis": {
+    "total_commission": 0.0,
+    "total_fees": 0.0,
+    "total_cost": 0.0,
+    "average_cost_per_trade": 0.0,
+    "cost_percentage": 0.0,
+    "cost_efficiency": 0,
+    "cost_breakdown": {
+      "commission_by_type": {
+        "SELL": 0.0,
+        "BUY": 0.0
+      },
+      "fees_by_type": {
+        "SELL": 0.0,
+        "BUY": 0.0
+      },
+      "commission_percentage": 0,
+      "fees_percentage": 0
+    },
+    "cost_trends": {}
+  },
+  "benchmark_comparison": {
+    "benchmark_symbol": "SPY",
+    "benchmark_return": 0.05,
+    "relative_performance": -0.05,
+    "excess_return": -0.05,
+    "information_ratio": -0.3333,
+    "tracking_error": 0.15,
+    "correlation": 0.8
+  },
+  "performance_attribution": {
+    "timing_contribution": -0.01,
+    "selection_contribution": 0.013,
+    "execution_contribution": -0.01,
+    "cost_contribution": 0.0,
+    "factor_breakdown": {
+      "timing_percentage": 0,
+      "selection_percentage": 0,
+      "execution_percentage": 0,
+      "cost_percentage": 0
+    }
+  },
+  "improvement_recommendations": [
+    {
+      "category": "Success Rate",
+      "priority": "HIGH",
+      "recommendation": "成功率が0.0%と低いです。エラー分析を確認し、注文パラメータを最適化してください。",
+      "action_items": [
+        "エラーログの確認",
+        "注文パラメータの見直し",
+        "市場状況の分析"
+      ]
+    },
+    {
+      "category": "Execution Quality",
+      "priority": "HIGH",
+      "recommendation": "実行品質が0/100と低いです。価格設定とタイミングを改善してください。",
+      "action_items": [
+        "価格設定の最適化",
+        "注文タイミングの改善",
+        "市場インパクトの最小化"
+      ]
+    }
+  ]
+}

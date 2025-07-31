@@ -2534,13 +2534,19 @@ class WebullCompleteRebalancer:
             # 新しい取引を追加
             all_trades = existing_trades + detailed_trades
             
+            # データ検証を実行
+            validated_trades = []
+            for trade in all_trades:
+                validated_trade = self._validate_trade_data(trade)
+                validated_trades.append(validated_trade)
+            
             # CSVに保存
             with open('data/trades.csv', 'w', newline='', encoding='utf-8') as f:
-                if all_trades:
-                    fieldnames = all_trades[0].keys()
+                if validated_trades:
+                    fieldnames = validated_trades[0].keys()
                     writer = csv.DictWriter(f, fieldnames=fieldnames)
                     writer.writeheader()
-                    writer.writerows(all_trades)
+                    writer.writerows(validated_trades)
             
             self.logger.info(f"✅ 詳細取引履歴をCSVに保存完了: {len(detailed_trades)}件の取引を追加")
             
@@ -2554,6 +2560,92 @@ class WebullCompleteRebalancer:
                 self.logger.info("フォールバック: 基本取引履歴をCSVに保存しました")
             except Exception as fallback_error:
                 self.logger.error(f"フォールバック保存も失敗: {fallback_error}")
+    
+    def _validate_trade_data(self, trade):
+        """取引データの検証と修正"""
+        try:
+            validated_trade = trade.copy()
+            
+            # 1. 必須フィールドの確認
+            required_fields = ['symbol', 'action', 'quantity', 'timestamp']
+            for field in required_fields:
+                if field not in validated_trade or not validated_trade[field]:
+                    if field == 'timestamp':
+                        validated_trade[field] = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+                    elif field == 'quantity':
+                        validated_trade[field] = '0'
+                    else:
+                        validated_trade[field] = ''
+            
+            # 2. 数値フィールドの型変換
+            numeric_fields = ['quantity', 'estimated_value', 'current_price', 'target_quantity', 
+                            'current_quantity', 'remaining_cash_before', 'remaining_cash_after']
+            for field in numeric_fields:
+                if field in validated_trade:
+                    try:
+                        value = validated_trade[field]
+                        if value and str(value).strip():
+                            # 数値に変換可能かチェック
+                            float_val = float(value)
+                            if field in ['target_quantity', 'current_quantity']:
+                                validated_trade[field] = str(int(float_val))
+                            else:
+                                validated_trade[field] = str(float_val)
+                        else:
+                            validated_trade[field] = '0.0'
+                    except (ValueError, TypeError):
+                        self.logger.warning(f"数値フィールド '{field}' の変換エラー: {validated_trade[field]}")
+                        validated_trade[field] = '0.0'
+            
+            # 3. actionフィールドの正規化
+            if 'action' in validated_trade:
+                action = str(validated_trade['action']).upper().strip()
+                if action not in ['BUY', 'SELL']:
+                    self.logger.warning(f"無効なaction値: {action} → BUYに修正")
+                    validated_trade['action'] = 'BUY'
+                else:
+                    validated_trade['action'] = action
+            
+            # 4. symbolフィールドの正規化
+            if 'symbol' in validated_trade:
+                symbol = str(validated_trade['symbol']).strip().upper()
+                validated_trade['symbol'] = symbol
+            
+            # 5. タイムスタンプの標準化
+            if 'timestamp' in validated_trade:
+                timestamp = validated_trade['timestamp']
+                if timestamp and str(timestamp).strip():
+                    try:
+                        # 既存のフォーマットを確認
+                        parsed = False
+                        for fmt in ['%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d', '%Y-%m-%d %H:%M:%S']:
+                            try:
+                                datetime.strptime(str(timestamp), fmt)
+                                parsed = True
+                                break
+                            except ValueError:
+                                continue
+                        
+                        if not parsed:
+                            # 数値が混入している場合
+                            try:
+                                float(timestamp)
+                                self.logger.warning(f"タイムスタンプが数値: {timestamp} → 現在時刻に修正")
+                                validated_trade['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+                            except ValueError:
+                                self.logger.warning(f"未対応のタイムスタンプ: {timestamp} → 現在時刻に修正")
+                                validated_trade['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+                    except Exception as e:
+                        self.logger.warning(f"タイムスタンプ解析エラー: {timestamp} → 現在時刻に修正")
+                        validated_trade['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+                else:
+                    validated_trade['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+            
+            return validated_trade
+            
+        except Exception as e:
+            self.logger.error(f"取引データ検証中にエラー発生: {e}")
+            return trade
     
     def _enhance_trade_details(self, trade):
         """取引詳細の強化"""
@@ -3321,9 +3413,30 @@ class WebullCompleteRebalancer:
             
             for trade in trades:
                 try:
-                    trade_date = datetime.fromisoformat(trade.get('timestamp', '').replace('Z', '+00:00'))
+                    timestamp = trade.get('timestamp', '')
+                    if not timestamp:
+                        continue
+                    
+                    # 複数の日付フォーマットに対応
+                    trade_date = None
+                    try:
+                        # ISO形式
+                        trade_date = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    except ValueError:
+                        try:
+                            # 標準的な日付形式
+                            trade_date = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S.%f')
+                        except ValueError:
+                            try:
+                                # 日付のみ
+                                trade_date = datetime.strptime(timestamp, '%Y-%m-%d')
+                            except ValueError:
+                                self.logger.warning(f"未対応の日付フォーマット: {timestamp}")
+                                continue
+                    
                     if trade_date >= cutoff_date:
                         recent_trades.append(trade)
+                        
                 except Exception as e:
                     self.logger.warning(f"取引日付の解析エラー: {e}")
             
@@ -3337,8 +3450,8 @@ class WebullCompleteRebalancer:
                 'total_trades': len(recent_trades),
                 'trades': recent_trades,
                 'trend_analysis': self._analyze_trade_trends(recent_trades),
-                'performance_tracking': self._track_performance_over_time(recent_trades),
-                'risk_monitoring': self._monitor_risk_over_time(recent_trades),
+                'performance_summary': self._analyze_trade_summary(recent_trades),
+                'risk_metrics': self._analyze_risk_metrics(recent_trades),
                 'improvement_suggestions': self._generate_improvement_suggestions(recent_trades)
             }
             
