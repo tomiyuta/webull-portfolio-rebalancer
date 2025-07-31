@@ -1402,7 +1402,17 @@ class WebullCompleteRebalancer:
                     self.logger.info(f"注文ID: {order_id}")
                     self.logger.info(f"クライアント注文ID: {client_order_id}")
                     # 注文の監視を開始
-                    self.monitor_order(order_id, symbol, client_order_id)
+                    monitor_result = self.monitor_order(order_id, symbol, client_order_id)
+                    
+                    # 監視結果を処理
+                    if monitor_result:
+                        status = monitor_result.get('status')
+                        if status == 'FILLED':
+                            self.logger.info(f"✅ 取引成功: {symbol}")
+                            return True
+                        elif status in ['CANCELLED', 'REJECTED', 'TIMEOUT', 'ERROR']:
+                            self.logger.error(f"❌ 取引失敗: {symbol} (ステータス: {status})")
+                            return False
                 
                 return True
             else:
@@ -1428,51 +1438,73 @@ class WebullCompleteRebalancer:
             self.logger.error(f"注文発注エラー: {e}")
             return False
     
-    def monitor_order(self, order_id, symbol, client_order_id=None):
-        """注文の監視（リトライ機能付き）"""
+    def monitor_order(self, order_id, symbol, client_order_id=None, max_wait_time=300):
+        """注文の監視（リトライ機能付き + タイムアウト処理）"""
         try:
-            self.logger.info(f"注文監視開始: {order_id} ({symbol})")
+            self.logger.info(f"注文監視開始: {order_id} ({symbol}) - 最大待機時間: {max_wait_time}秒")
             
-            # リトライ機能付きで注文詳細を取得（Webull API）
-            def api_call():
-                # Webull APIでは、account_id、client_order_idまたはorder_idが必要
-                if client_order_id:
-                    return self.api.order.get_order_detail(account_id=self.account_id, client_order_id=client_order_id)
+            start_time = time.time()
+            check_interval = 10  # 10秒ごとにチェック
+            
+            while time.time() - start_time < max_wait_time:
+                # リトライ機能付きで注文詳細を取得（Webull API）
+                def api_call():
+                    # Webull APIでは、account_id、client_order_idまたはorder_idが必要
+                    if client_order_id:
+                        return self.api.order.get_order_detail(account_id=self.account_id, client_order_id=client_order_id)
+                    else:
+                        return self.api.order.get_order_detail(account_id=self.account_id, order_id=order_id)
+                
+                response = self.api_call_with_retry(api_call, max_retries=2, delay=1, api_name="get_order_detail")
+                
+                if response and response.status_code == 200:
+                    order_detail = json.loads(response.text)
+                    
+                    # 注文ステータスを確認（Webull API仕様）
+                    status = order_detail.get('status')
+                    self.logger.info(f"注文ステータス: {symbol} - {status}")
+                    
+                    if status == 'FILLED':
+                        self.logger.info(f"✅ 注文約定完了: {symbol}")
+                        return {'status': 'FILLED', 'order_detail': order_detail}
+                    elif status == 'CANCELLED':
+                        self.logger.warning(f"⚠️ 注文キャンセル: {symbol}")
+                        return {'status': 'CANCELLED', 'order_detail': order_detail}
+                    elif status == 'REJECTED':
+                        self.logger.error(f"❌ 注文拒否: {symbol}")
+                        return {'status': 'REJECTED', 'order_detail': order_detail}
+                    elif status in ['PENDING', 'PARTIALLY_FILLED']:
+                        elapsed_time = time.time() - start_time
+                        self.logger.info(f"⏳ 注文処理中: {symbol} (経過時間: {elapsed_time:.1f}秒)")
+                        
+                        # タイムアウトに近づいた場合の警告
+                        if elapsed_time > max_wait_time * 0.8:
+                            self.logger.warning(f"⚠️ 注文タイムアウトに近づいています: {symbol}")
+                        
+                        time.sleep(check_interval)
+                    else:
+                        self.logger.info(f"⏳ 注文処理中: {symbol} (ステータス: {status})")
+                        time.sleep(check_interval)
                 else:
-                    return self.api.order.get_order_detail(account_id=self.account_id, order_id=order_id)
+                    self.logger.error(f"注文詳細取得失敗: {response.text if response else 'No response'}")
+                    time.sleep(check_interval)
             
-            response = self.api_call_with_retry(api_call, max_retries=2, delay=1, api_name="get_order_detail")
-            
-            if response and response.status_code == 200:
-                order_detail = json.loads(response.text)
-                self.logger.info(f"注文詳細: {order_detail}")
-                
-                # 注文ステータスを確認（Webull API仕様）
-                status = order_detail.get('status')
-                self.logger.info(f"注文ステータス: {status}")
-                
-                if status == 'FILLED':
-                    self.logger.info(f"✅ 注文約定完了: {symbol}")
-                elif status == 'CANCELLED':
-                    self.logger.warning(f"⚠️ 注文キャンセル: {symbol}")
-                elif status == 'REJECTED':
-                    self.logger.error(f"❌ 注文拒否: {symbol}")
-                else:
-                    self.logger.info(f"⏳ 注文処理中: {symbol} (ステータス: {status})")
-                
-            else:
-                self.logger.error(f"注文詳細取得失敗: {response.text if response else 'No response'}")
+            # タイムアウト
+            self.logger.error(f"❌ 注文タイムアウト: {symbol} (最大待機時間: {max_wait_time}秒)")
+            return {'status': 'TIMEOUT', 'order_detail': None}
                 
         except Exception as e:
             self.logger.error(f"注文監視エラー: {e}")
+            return {'status': 'ERROR', 'order_detail': None}
     
     def get_open_orders(self):
         """未約定注文を取得（リトライ機能付き）"""
         try:
             def api_call():
-                return self.api.order.get_order_history_request(self.account_id)
+                # 現在のSDKで利用可能なメソッドを使用
+                return self.api.order.get_order_list(self.account_id)
             
-            response = self.api_call_with_retry(api_call, max_retries=2, delay=1, api_name="get_order_history_request")
+            response = self.api_call_with_retry(api_call, max_retries=2, delay=1, api_name="get_order_list")
             
             if response and response.status_code == 200:
                 orders_data = json.loads(response.text)
@@ -1522,6 +1554,78 @@ class WebullCompleteRebalancer:
                 
         except Exception as e:
             self.logger.error(f"注文キャンセルエラー: {e}")
+            return False
+    
+    def monitor_all_open_orders(self, max_wait_time=300):
+        """すべての未約定注文を監視"""
+        try:
+            self.logger.info("=== 未約定注文の一括監視開始 ===")
+            
+            start_time = time.time()
+            check_interval = 30  # 30秒ごとにチェック
+            
+            while time.time() - start_time < max_wait_time:
+                # 未約定注文を取得
+                open_orders = self.get_open_orders()
+                
+                if not open_orders:
+                    self.logger.info("✅ 未約定注文なし - すべての注文が約定またはキャンセルされました")
+                    return True
+                
+                self.logger.info(f"⏳ 未約定注文数: {len(open_orders)}")
+                
+                # 各注文の状況を確認
+                for order in open_orders:
+                    order_id = order.get('order_id')
+                    symbol = order.get('symbol', 'Unknown')
+                    status = order.get('status')
+                    
+                    self.logger.info(f"注文状況: {symbol} - {status} (ID: {order_id})")
+                
+                # タイムアウトに近づいた場合の警告
+                elapsed_time = time.time() - start_time
+                if elapsed_time > max_wait_time * 0.8:
+                    self.logger.warning(f"⚠️ 監視タイムアウトに近づいています (経過時間: {elapsed_time:.1f}秒)")
+                
+                time.sleep(check_interval)
+            
+            # タイムアウト
+            self.logger.error(f"❌ 監視タイムアウト (最大待機時間: {max_wait_time}秒)")
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"未約定注文監視エラー: {e}")
+            return False
+    
+    def cancel_all_open_orders(self):
+        """すべての未約定注文をキャンセル"""
+        try:
+            self.logger.info("=== 未約定注文の一括キャンセル開始 ===")
+            
+            open_orders = self.get_open_orders()
+            
+            if not open_orders:
+                self.logger.info("キャンセル対象の未約定注文なし")
+                return True
+            
+            self.logger.info(f"キャンセル対象注文数: {len(open_orders)}")
+            
+            success_count = 0
+            for order in open_orders:
+                order_id = order.get('order_id')
+                symbol = order.get('symbol', 'Unknown')
+                
+                if self.cancel_order(order_id):
+                    self.logger.info(f"✅ キャンセル成功: {symbol}")
+                    success_count += 1
+                else:
+                    self.logger.error(f"❌ キャンセル失敗: {symbol}")
+            
+            self.logger.info(f"キャンセル完了: {success_count}/{len(open_orders)} 成功")
+            return success_count == len(open_orders)
+            
+        except Exception as e:
+            self.logger.error(f"一括キャンセルエラー: {e}")
             return False
     
     def save_trades_to_csv(self, trades):
@@ -1935,6 +2039,15 @@ class WebullCompleteRebalancer:
             open_orders = self.get_open_orders()
             if open_orders:
                 self.logger.warning(f"取引後に未約定注文が {len(open_orders)} 件残っています")
+                
+                # 未約定注文の監視を開始
+                self.logger.info("未約定注文の監視を開始します...")
+                monitor_success = self.monitor_all_open_orders(max_wait_time=180)  # 3分間監視
+                
+                if not monitor_success:
+                    self.logger.warning("監視タイムアウト - 未約定注文のキャンセルを検討してください")
+            else:
+                self.logger.info("✅ 未約定注文なし")
             
             # 3. 口座残高を再確認
             balances = self.get_account_balance()
