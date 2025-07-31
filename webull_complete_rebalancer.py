@@ -4043,9 +4043,30 @@ class WebullCompleteRebalancer:
             
             for trade in trades:
                 try:
-                    trade_date = datetime.fromisoformat(trade.get('timestamp', '').replace('Z', '+00:00'))
+                    timestamp = trade.get('timestamp', '')
+                    if not timestamp:
+                        continue
+                    
+                    # 複数の日付フォーマットに対応
+                    trade_date = None
+                    try:
+                        # ISO形式
+                        trade_date = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    except ValueError:
+                        try:
+                            # 標準的な日付形式
+                            trade_date = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S.%f')
+                        except ValueError:
+                            try:
+                                # 日付のみ
+                                trade_date = datetime.strptime(timestamp, '%Y-%m-%d')
+                            except ValueError:
+                                self.logger.warning(f"未対応の日付フォーマット: {timestamp}")
+                                continue
+                    
                     if analysis_period['start_date'] <= trade_date <= analysis_period['end_date']:
                         period_trades.append(trade)
+                        
                 except Exception as e:
                     self.logger.warning(f"取引日付の解析エラー: {e}")
             
