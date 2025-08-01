@@ -11,9 +11,10 @@ Webull APIを使用した自動ポートフォリオリバランシングボッ�
 - **詳細ログ**: 取引履歴とログの保存
 - **クロスプラットフォーム**: Mac/Linux/Windows対応
 - **Docker対応**: 環境に依存しない実行
-- **アカウントID自動取得**: 設定ファイルの手動更新不要
-- **マルチアカウント対応**: 簡単なアカウント切り替え
+- **最小認証構成**: APIキーとAPIシークレットの2つのみでログイン可能
+- **自動認証情報取得**: アカウントID、口座番号、その他の認証情報を自動取得
 - **設定ファイル自動更新**: 実行時に必要な情報を自動保存
+- **マルチアカウント対応**: 簡単なアカウント切り替え
 - **データ品質管理**: 取引履歴の自動検証と修正
 - **パフォーマンス分析**: 取引結果の詳細分析と改善提案
 - **取引結果追跡**: 期間指定での取引結果追跡とトレンド分析
@@ -63,41 +64,37 @@ cp webull_config_sample.json webull_config_with_allocation.json
 
 `webull_config_with_allocation.json`を編集して、Webull APIの認証情報と取引設定を設定：
 
-#### 必要な情報の取得方法
+#### 設定方法
 
-**Webullアプリから取得できる情報:**
-1. **ユーザーID**: WebullアプリのログインID
-2. **パスワード**: Webullアプリのログインパスワード
-3. **口座番号**: Webullアプリの口座情報から取得（例: CJP0871702）
+**必要な情報はAPIキーとAPIシークレットの2つのみ！**
 
-**Webull API開発者ポータルから取得:**
-1. **API Key**: Webull開発者ポータルでアプリケーション作成時に取得
-2. **API Secret**: Webull開発者ポータルでアプリケーション作成時に取得
+```json
+{
+  "app_key": "your_api_key_from_webull_portal",
+  "app_secret": "your_api_secret_from_webull_portal",
+  "portfolio_config_file": "portfolio.csv",
+  "dry_run": true
+}
+```
 
 **自動取得される情報（設定不要）:**
 - **Account ID**: プログラム実行時に自動取得
+- **Account Number**: プログラム実行時に自動取得
 - **Subscription ID**: プログラム実行時に自動取得
 - **User ID**: プログラム実行時に自動取得
+- **Access Token**: プログラム実行時に自動取得
+- **Refresh Token**: プログラム実行時に自動取得
 
 #### 設定ファイル例
 
 ```json
 {
-  "username": "your_webull_username",
-  "password": "your_webull_password",
   "app_key": "your_api_key_from_webull_portal",
   "app_secret": "your_api_secret_from_webull_portal",
-  "account_id": "",
-  "account_number": "your_account_number_from_webull_app",
-  "subscription_id": "",
-  "user_id": "",
-  "access_token": "",
-  "refresh_token": "",
   "portfolio_config_file": "portfolio.csv",
-  "dry_run": true,
-  "api_settings": {
-    "max_retries": 3,
-    "retry_delay": 1,
+  "dry_run": true
+}
+```
     "rate_limit_delay": 2
   },
   "trading_settings": {
@@ -128,44 +125,25 @@ cp webull_config_sample.json webull_config_with_allocation.json
 1. **設定ファイルの更新**:
    ```json
    {
-     "username": "新しいユーザーID",
-     "password": "新しいパスワード",
      "app_key": "新しいAPIキー",
      "app_secret": "新しいAPIシークレット",
-     "account_id": "",
-     "account_number": "新しい口座番号",
-     "subscription_id": "",
-     "user_id": "",
-     "access_token": "",
-     "refresh_token": ""
+     "portfolio_config_file": "portfolio.csv",
+     "dry_run": true
    }
    ```
 
 2. **プログラム実行**:
-   - プログラムが自動的に新しいアカウントの`account_id`、`subscription_id`、`user_id`を取得
+   - プログラムが自動的に新しいアカウントの`account_id`、`account_number`、`subscription_id`、`user_id`を取得
    - 設定ファイルが自動的に更新される
 
 #### アカウント情報の例
 
-**例1:**
 ```json
 {
-  "username": "08040224131",
-  "password": "Hiroka103",
-  "app_key": "ca0f603e7a6fde604a236a4db6ae1c05",
-  "app_secret": "6acad5f331fe85bfb5ea59c385a27d13",
-  "account_number": "CJP0871702"
-}
-```
-
-**例2:**
-```json
-{
-  "username": "08040040157",
-  "password": "0157ppqQ",
-  "app_key": "cfbd1361f55439c334268f072979b021",
-  "app_secret": "14706cf44f4bddb708227951a68e3159",
-  "account_number": "CJP0837276"
+  "app_key": "7910ea11eb806601b5a55f0bf7cbb5a1",
+  "app_secret": "820bd408ca597a088411f1189a60ba57",
+  "portfolio_config_file": "portfolio.csv",
+  "dry_run": true
 }
 ```
 
@@ -286,6 +264,26 @@ python run_rebalancing.py --live --mode available_cash
 ```
 
 ## ファイル構成
+
+### 実行に必要なファイル
+
+**実際の取引に必要な最小ファイルセット：**
+
+```
+webull-portfolio-rebalancer/
+├── webull_complete_rebalancer.py    # メインのリバランシングロジック
+├── run_rebalancing.py               # 実行エントリーポイント
+├── webull_config_with_allocation.json # 現在の設定（APIキー・シークレット）
+├── portfolio.csv                    # ポートフォリオ配分設定
+├── requirements.txt                 # Python依存関係
+├── Dockerfile                       # Docker環境構築
+├── data/                           # 取引履歴（自動生成）
+└── logs/                           # ログ（自動生成）
+```
+
+**これら8つのファイル/ディレクトリがあれば、完全に動作します！**
+
+### 完全なファイル構成
 
 ```
 webullbot/
@@ -469,23 +467,22 @@ ls -la data/*_trades_results_*.json
 ### アカウント変更時の確認事項
 
 1. **設定ファイルの更新**:
-   - `username`: 新しいユーザーID
-   - `password`: 新しいパスワード
    - `app_key`: 新しいAPIキー
    - `app_secret`: 新しいAPIシークレット
-   - `account_number`: 新しい口座番号
-   - `account_id`, `subscription_id`, `user_id`: 空文字列に設定
+   - その他の認証情報は自動取得されるため設定不要
 
 2. **実行確認**:
    - プログラムが正常に起動するか確認
    - アカウントIDが自動取得されるか確認
    - 口座残高が正しく取得されるか確認
 
+
+
 ## セキュリティ
 
 - API認証情報は設定ファイルに保存
 - 本番環境では環境変数の使用を推奨
-- 定期的なパスワード変更を推奨
+- 定期的なAPIキーの更新を推奨
 - **重要**: 個人情報を含むファイルは`.gitignore`で除外されています
   - `webull_config_with_allocation.json`: 実際の設定ファイル
   - `webullkey.txt`, `webullkey2.txt`: 個人のAPIキー情報
@@ -494,6 +491,22 @@ ls -la data/*_trades_results_*.json
   - `data/performance_analysis_*.json`: パフォーマンス分析結果
   - `data/*_trades_results_*.json`: 取引結果追跡データ
 - **初回セットアップ**: `webull_config_sample.json`をコピーして使用してください
+
+### セキュリティ
+
+**必要な認証情報：**
+- **API Key**: Webull開発者ポータルから取得
+- **API Secret**: Webull開発者ポータルから取得
+
+**自動取得される情報：**
+- ユーザーID・パスワード（Webullアプリのログイン情報）
+- 口座番号
+- その他の認証情報（すべて自動取得）
+
+**セキュリティ上の利点：**
+- 必要な認証情報が最小限（2つのみ）
+- 個人のログイン情報を設定ファイルに保存する必要がない
+- アカウント変更時の設定が大幅に簡素化
 
 ## 免責事項
 
