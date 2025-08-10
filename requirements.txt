@@ -10,3 +10,4 @@ numpy
 requests
 urllib3
 yfinance
+streamlit
