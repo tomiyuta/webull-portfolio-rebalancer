@@ -13,8 +13,9 @@ COPY . .
 RUN mkdir -p logs
 
 # 実行権限を付与
-RUN chmod +x run_webullbot.sh
 RUN chmod +x run_webullbot_dryrun.sh
 
-# デフォルトコマンド
-CMD ["python3", "run_rebalancing.py"] 
+# エントリポイントの設定（APP_MODEで切替可能）
+RUN chmod +x entrypoint.sh
+ENTRYPOINT ["./entrypoint.sh"]
+CMD ["python3", "webull_bot_unified.py"]

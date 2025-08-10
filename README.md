@@ -1,573 +1,361 @@
-# Webull Portfolio Rebalancer Bot
+# WebullBot Unified - 統合版ポートフォリオリバランサー
 
-Webull APIを使用した自動ポートフォリオリバランシングボットです。指定されたポートフォリオ配分に基づいて、自動的に株式・ETFの売買を行い、ポートフォリオを最適化します。
+Webull APIを使用した統合版ポートフォリオリバランサーボットです。残高確認、買い付け、売却、リバランシング機能を全て統合し、シンプルで保守しやすい構造になっています。
 
-## 機能
+## 🚀 特徴
 
-- **自動ポートフォリオリバランシング**: 設定された配分に基づく自動売買
-- **保守的価格取得**: 複数のAPI（Webull、yfinance）を使用した信頼性の高い価格取得
-- **安全な取引実行**: 買付余力チェック、注文監視、エラーハンドリング
-- **ドライラン機能**: 実際の取引前にシミュレーション実行
-- **詳細ログ**: 取引履歴とログの保存
-- **クロスプラットフォーム**: Mac/Linux/Windows対応
-- **Docker対応**: 環境に依存しない実行
-- **最小認証構成**: APIキーとAPIシークレットの2つのみでログイン可能
-- **自動認証情報取得**: アカウントID、口座番号、その他の認証情報を自動取得
-- **設定ファイル自動更新**: 実行時に必要な情報を自動保存
-- **マルチアカウント対応**: 簡単なアカウント切り替え
-- **データ品質管理**: 取引履歴の自動検証と修正
-- **パフォーマンス分析**: 取引結果の詳細分析と改善提案
-- **取引結果追跡**: 期間指定での取引結果追跡とトレンド分析
+### ✅ 統合された機能
+- **残高確認**: アカウント残高と買付余力の取得
+- **ポジション確認**: 現在の保有ポジションの取得
+- **買い付け**: サンプルコード準拠の購入機能
+- **売却**: 成功コード準拠の売却機能
+- **リバランシング**: 自動ポートフォリオ調整
+- **情報表示**: 統合されたアカウント情報と投資分析
 
-## 前提条件
+### 🔧 技術的特徴
+- **単一ファイル**: 全ての機能が`webull_bot_unified.py`に統合
+- **API統一**: 買い付け・売却で統一されたAPI呼び出し
+- **エラーハンドリング**: 包括的なエラー処理とログ機能
+- **キャッシュ機能**: 価格とinstrument_idの効率的なキャッシュ
+- **ドライラン**: 安全なテスト実行モード
+- **相場取得**: Webull MDATAを優先し、失敗時は`yfinance`にフォールバック（1分キャッシュ）
 
+## 📋 必要要件
+
+### システム要件
 - Python 3.8以上
-- Webullアカウント（APIアクセス権限）
-- 必要なAPIキーとトークン
+- Docker（推奨）
+- Webull API アカウント
 
-## セットアップ
+### Python依存関係（抜粋）
+```
+webull-python-sdk-core
+webull-python-sdk-trade
+webull-python-sdk-mdata
+webull-python-sdk-trade-events-core
+pandas
+numpy
+yfinance  # MDATA失敗時のフォールバック
+```
+
+## 🛠️ セットアップ
 
 ### 1. リポジトリのクローン
 ```bash
 git clone <repository-url>
-cd webullbot
+cd webull-portfolio-rebalancer
 ```
 
-### 2. 環境セットアップ
+### 2. 設定ファイルの準備
 
-**Dockerを使用（推奨）:**
-```bash
-# Dockerイメージのビルド
-docker build -t webullbot .
-
-# または、直接実行（初回時に自動ビルド）
-docker run --rm -v $(pwd):/app webullbot python3 run_rebalancing.py
-```
-
-**従来の方法（Mac/Linux）:**
-```bash
-./setup_webullbot.sh
-```
-
-**従来の方法（Windows）:**
-```cmd
-setup_webullbot.bat
-```
-
-### 3. 設定ファイルの編集
-
-**初回セットアップ:**
-```bash
-# サンプル設定ファイルをコピー
-cp webull_config_sample.json webull_config_with_allocation.json
-```
-
-`webull_config_with_allocation.json`を編集して、Webull APIの認証情報と取引設定を設定：
-
-#### 設定方法
-
-**必要な情報はAPIキーとAPIシークレットの2つのみ！**
-
+#### `webull_config_with_allocation.json`の設定
 ```json
 {
-  "app_key": "your_api_key_from_webull_portal",
-  "app_secret": "your_api_secret_from_webull_portal",
+  "app_key": "your_app_key",
+  "app_secret": "your_app_secret",
+  "account_id": "your_account_id",
   "portfolio_config_file": "portfolio.csv",
-  "dry_run": true
-}
-```
-
-**自動取得される情報（設定不要）:**
-- **Account ID**: プログラム実行時に自動取得
-- **Account Number**: プログラム実行時に自動取得
-- **Subscription ID**: プログラム実行時に自動取得
-- **User ID**: プログラム実行時に自動取得
-- **Access Token**: プログラム実行時に自動取得
-- **Refresh Token**: プログラム実行時に自動取得
-
-#### 設定ファイル例
-
-```json
-{
-  "app_key": "your_api_key_from_webull_portal",
-  "app_secret": "your_api_secret_from_webull_portal",
-  "portfolio_config_file": "portfolio.csv",
-  "dry_run": true
-}
-```
+  "dry_run": true,
+  "api_settings": {
+    "max_retries": 3,
+    "retry_delay": 1,
     "rate_limit_delay": 2
   },
   "trading_settings": {
     "price_slippage": 0.01,
     "min_order_amount": 1,
-    "max_order_amount": 10000,
+    "max_order_amount": 5000,
     "order_timeout": 300,
-    "conservative_price_margin": 0.0
-  },
-  "rebalancing_settings": {
-    "mode": "total_value",
-    "include_existing_positions": true,
-    "sell_existing_positions": true,
-    "min_trade_amount": 100,
-    "max_trade_amount": 10000,
-    "rebalance_threshold": 0.05
-  },
-  "logging_settings": {
-    "log_level": "DEBUG",
-    "log_to_file": true,
-    "log_to_console": true
+    "conservative_price_margin": 0.03
   }
 }
 ```
 
-#### 新しいアカウントへの変更方法
-
-1. **設定ファイルの更新**:
-   ```json
-   {
-     "app_key": "新しいAPIキー",
-     "app_secret": "新しいAPIシークレット",
-     "portfolio_config_file": "portfolio.csv",
-     "dry_run": true
-   }
-   ```
-
-2. **プログラム実行**:
-   - プログラムが自動的に新しいアカウントの`account_id`、`account_number`、`subscription_id`、`user_id`を取得
-   - 設定ファイルが自動的に更新される
-
-#### アカウント情報の例
-
-```json
-{
-  "app_key": "7910ea11eb806601b5a55f0bf7cbb5a1",
-  "app_secret": "820bd408ca597a088411f1189a60ba57",
-  "portfolio_config_file": "portfolio.csv",
-  "dry_run": true
-}
-```
-
-#### 保守的価格マージン設定
-
-`trading_settings.conservative_price_margin`で保守的価格マージンを設定できます：
-
-- **0.0** (デフォルト): 保守的マージンなし（基本価格をそのまま使用）
-- **0.01**: 1%の保守的マージン（基本価格 × 1.01）
-- **0.02**: 2%の保守的マージン（基本価格 × 1.02）
-
-**保守的価格の目的**:
-- 価格変動リスクの軽減
-- 注文成功率の向上
-- 資金不足の防止
-- スリッページ対策
-
-**初期設定について**:
-- **推奨初期値**: `0.0` (0%)
-- **理由**: 価格取得から実際の取引までの時間差が少ないため
-- **必要に応じて調整**: 市場のボラティリティや取引頻度に応じて設定
-
-### 4. ポートフォリオ設定
-
-`portfolio.csv`を編集して、目標ポートフォリオ配分を設定：
-
+#### `portfolio.csv`の設定
 ```csv
-銘柄,配分(%)
-XLU,32.2
-TQQQ,32.2
-TECL,21.5
-GLD,14.1
+symbol,allocation_percentage
+XLU,30.0
+TQQQ,30.0
+TECL,20.0
+GLD,15.0
+NUGT,5.0
 ```
 
-## 使用方法
+### 3. Docker環境での実行（推奨）
 
-### パフォーマンス分析と取引結果追跡
-
-**パフォーマンス分析の実行:**
+#### Dockerイメージのビルド
 ```bash
-# 過去30日間のパフォーマンス分析
-docker run --rm -v $(pwd):/app webullbot python3 -c "from webull_complete_rebalancer import WebullCompleteRebalancer; rebalancer = WebullCompleteRebalancer(); rebalancer.analyze_performance('30d')"
-
-# 過去7日間のパフォーマンス分析
-docker run --rm -v $(pwd):/app webullbot python3 -c "from webull_complete_rebalancer import WebullCompleteRebalancer; rebalancer = WebullCompleteRebalancer(); rebalancer.analyze_performance('7d')"
+docker build -t webull-rebalancer .
 ```
 
-**取引結果追跡の実行:**
+#### 実行
 ```bash
-# 過去7日間の取引結果追跡
-docker run --rm -v $(pwd):/app webullbot python3 -c "from webull_complete_rebalancer import WebullCompleteRebalancer; rebalancer = WebullCompleteRebalancer(); rebalancer.track_trade_results(days=7)"
+# ドライラン実行
+docker run --rm -v ${PWD}:/app webull-rebalancer python3 webull_bot_unified.py
 
-# 特定の取引IDの追跡
-docker run --rm -v $(pwd):/app webullbot python3 -c "from webull_complete_rebalancer import WebullCompleteRebalancer; rebalancer = WebullCompleteRebalancer(); rebalancer.track_trade_results(trade_id='TRADE_001')"
+# または実行スクリプト使用
+./run_webullbot_dryrun.sh  # Linux/Mac
+run_webullbot_dryrun.bat   # Windows
 ```
 
-### Dockerを使用した実行（推奨）
+### 4. gRPC注文イベント購読（任意）
 
-**ドライラン（テスト実行）:**
+注文のステータス変更をリアルタイムに受信します。
+
+- Dockerで購読（推奨）
 ```bash
-# 総資産価値ベースリバランス（デフォルト）
-docker run --rm -v $(pwd):/app webullbot python3 run_rebalancing.py
-
-# 利用可能資金ベースリバランス
-docker run --rm -v $(pwd):/app webullbot python3 run_rebalancing.py --mode available_cash
+docker build -t webull-rebalancer .
+docker run --rm -e APP_MODE=events -v ${PWD}:/app webull-rebalancer
 ```
 
-**実際の取引実行:**
+- ローカルで購読
 ```bash
-# 設定ファイルで dry_run: false に変更後
-# 総資産価値ベースリバランス（デフォルト）
-docker run --rm -v $(pwd):/app webullbot python3 run_rebalancing.py
-
-# 利用可能資金ベースリバランス
-docker run --rm -v $(pwd):/app webullbot python3 run_rebalancing.py --mode available_cash
+python3 subscribe_trade_events.py
 ```
 
-### 従来の方法
+ログは`logs/trade_events_*.log`に出力されます。
 
-**ドライラン（テスト実行）:**
+## 📖 使用方法
 
-**Mac/Linux:**
+### 基本的な実行
+
+#### 1. ドライラン（推奨）
 ```bash
-./run_webullbot_dryrun.sh
+# 設定ファイルでdry_run: trueに設定
+docker run --rm -v ${PWD}:/app webull-rebalancer python3 webull_bot_unified.py
 ```
 
-**Windows:**
-```cmd
-run_webullbot_dryrun.bat
-```
-
-**実際の取引実行:**
-
-**Mac/Linux:**
+#### 2. 実際の取引実行
 ```bash
-./run_webullbot.sh
+# 設定ファイルでdry_run: falseに設定
+docker run --rm -v ${PWD}:/app webull-rebalancer python3 webull_bot_unified.py
 ```
 
-**Windows:**
-```cmd
-run_webullbot.bat
+### 機能別実行
+
+#### アカウント情報の表示
+```python
+from webull_bot_unified import WebullBotUnified
+
+bot = WebullBotUnified(dry_run=True)
+bot.show_account_info()
 ```
 
-### 手動実行
+#### 投資分析の表示
+```python
+bot.show_investment_analysis()
+```
 
+#### リバランシングの実行
+```python
+success = bot.execute_rebalancing()
+```
+
+#### gRPCイベント購読のみを起動（Docker）
 ```bash
-# ドライラン（総資産価値ベース）
-python run_rebalancing.py
-
-# ドライラン（利用可能資金ベース）
-python run_rebalancing.py --mode available_cash
-
-# 実際の取引（総資産価値ベース）
-python run_rebalancing.py --live
-
-# 実際の取引（利用可能資金ベース）
-python run_rebalancing.py --live --mode available_cash
+docker run --rm -e APP_MODE=events -v ${PWD}:/app webull-rebalancer
 ```
 
-## ファイル構成
+#### 個別取引の実行
+```python
+# 買い付け
+success = bot.buy_stock("XLU", 10)
 
-### 実行に必要なファイル
+# 売却
+success = bot.sell_stock("XLU", 5)
 
-**実際の取引に必要な最小ファイルセット：**
+# 全ポジション売却
+success = bot.sell_all_positions()
+```
+
+## 🔧 API呼び出し仕様
+
+### 買い付け（v2 仕様）
+```python
+order = {
+    "client_order_id": uuid.uuid4().hex,
+    "symbol": symbol,
+    "instrument_type": "EQUITY",
+    "market": "US",
+    "side": "BUY",
+    "order_type": "LIMIT",
+    "quantity": str(int(quantity)),
+    "limit_price": f"{limit_price:.2f}",
+    "support_trading_session": "N",
+    "time_in_force": "DAY",
+    "entrust_type": "QTY",
+    "account_tax_type": "SPECIFIC"
+}
+prev = self.api.order_v2.preview_order(self.account_id, order)
+resp = self.api.order_v2.place_order(self.account_id, order)
+```
+
+### 売却（成功コード準拠）
+```python
+order = {
+    "client_order_id": uuid.uuid4().hex,
+    "symbol": symbol,
+    "instrument_type": "EQUITY",
+    "market": "US",
+    "side": "SELL",
+    "order_type": "MARKET",
+    "quantity": str(int(quantity)),
+    "support_trading_session": "N",
+    "time_in_force": "DAY",
+    "entrust_type": "QTY",
+    "account_tax_type": "SPECIFIC"
+}
+
+# Preview → Place
+preview_response = self.api.order_v2.preview_order(self.account_id, order)
+response = self.api.order_v2.place_order(self.account_id, order)
+```
+
+## 📊 出力例
+
+### アカウント情報
+```
+=== アカウント情報 ===
+Account ID: 1099757484888625152
+Dry Run Mode: True
+
+--- USD残高 ---
+利用可能現金: $10,896.76
+買付余力: $10,896.76
+総現金: $13,322.16
+
+--- 現在のポジション ---
+ポジションなし
+
+--- 目標ポートフォリオ ---
+XLU: 100.0%
+```
+
+### 投資分析
+```
+=== 投資分析 ===
+総ポートフォリオ価値: $10,896.76
+利用可能現金: $10,896.76
+ポジション価値: $0.00
+
+--- 目標投資額 ---
+XLU: $10,896.76 (127.02株 @ $85.78)
+
+--- リバランシング分析 ---
+必要な取引数: 1
+購入取引: 1件
+総購入金額: $10,896.76
+```
+
+### リバランシング実行
+```
+=== リバランシング実行（DRY RUN） ===
+✅ リバランシング完了
+```
+
+## 📁 ファイル構成
 
 ```
 webull-portfolio-rebalancer/
-├── webull_complete_rebalancer.py    # メインのリバランシングロジック
-├── run_rebalancing.py               # 実行エントリーポイント
-├── webull_config_with_allocation.json # 現在の設定（APIキー・シークレット）
-├── portfolio.csv                    # ポートフォリオ配分設定
-├── requirements.txt                 # Python依存関係
-├── Dockerfile                       # Docker環境構築
-├── data/                           # 取引履歴（自動生成）
-└── logs/                           # ログ（自動生成）
+├── webull_bot_unified.py          # 統合版メインファイル
+├── webull_config_with_allocation.json  # メイン設定ファイル
+├── portfolio.csv                   # ポートフォリオ設定
+├── Dockerfile                      # Dockerイメージ定義
+├── entrypoint.sh                   # APP_MODEで起動モード切替
+├── requirements.txt                # Python依存関係
+├── run_webullbot_dryrun.sh        # Linux/Mac実行スクリプト
+├── run_webullbot_dryrun.bat       # Windows実行スクリプト
+├── subscribe_trade_events.py       # gRPC注文イベント購読
+├── README.md                       # このファイル
+├── CHANGELOG.md                    # 変更履歴
+├── logs/                           # ログディレクトリ
+│   └── webull_bot_YYYYMMDD.log    # 実行ログ
+└── data/                           # データディレクトリ
+    └── trades.csv                  # 取引履歴
 ```
 
-**これら8つのファイル/ディレクトリがあれば、完全に動作します！**
+## ⚠️ 注意事項
 
-### 完全なファイル構成
+### セキュリティ
+- APIキーとシークレットは安全に管理してください
+- 設定ファイルはGitにコミットしないでください
+- 本番環境では適切なアクセス制御を設定してください
 
-```
-webullbot/
-├── webull_complete_rebalancer.py  # メインのリバランシングロジック
-├── run_rebalancing.py             # 実行スクリプト
-├── webull_config_sample.json      # サンプル設定ファイル
-├── webull_config_with_allocation.json  # 実際の設定ファイル（.gitignoreで除外）
-├── portfolio.csv                  # ポートフォリオ配分設定
-├── data/
-│   ├── trades.csv                 # 取引ログ（自動検証・修正機能付き）
-│   ├── trades_example.csv         # サンプル取引ログ
-│   ├── performance_analysis_*.json # パフォーマンス分析結果
-│   └── *_trades_results_*.json    # 取引結果追跡データ
-├── logs/                          # ログファイル（.gitignoreで除外）
-├── requirements.txt               # Python依存関係
-├── Dockerfile                     # Dockerコンテナ定義
-├── setup_webullbot.sh            # Mac/Linuxセットアップ
-├── setup_webullbot.bat           # Windowsセットアップ
-├── run_webullbot.sh              # Mac/Linux実行
-├── run_webullbot.bat             # Windows実行
-├── run_webullbot_dryrun.sh       # Mac/Linuxドライラン
-└── run_webullbot_dryrun.bat      # Windowsドライラン
-```
+### リスク管理
+- 必ずドライランでテストしてから実際の取引を実行してください
+- 取引金額とリスク許容度を十分に検討してください
+- 市場状況に応じて適切な設定調整を行ってください
 
-## 主要機能の詳細
+### API制限
+- Webull APIの利用制限に注意してください
+- レート制限を考慮した適切な間隔でAPI呼び出しを行ってください
 
-### 1. ポートフォリオリバランシング
-
-#### 利用可能資金ベースリバランス（従来方式）
-- 現在のポジションと目標配分を比較
-- 利用可能資金のみを使用して購入
-- 買付余力を考慮した安全な取引実行
-
-#### 総資産価値ベースリバランス（改善方式）
-- 既存ポジションを含む総資産価値を使用
-- 段階的リバランス（売却→購入）
-- より効率的な資金活用
-- 目標配分に含まれない銘柄の自動売却
-- 過剰ポジションの自動調整
-
-### 2. 保守的価格取得
-
-- Webull API（プライマリ）
-- yfinance（フォールバック）
-- 複数APIの結果を比較・検証
-
-### 3. 安全機能
-
-- 買付余力チェック
-- 注文監視とステータス確認
-- エラーハンドリングとリトライ機能
-- ドライラン機能
-
-### 4. ログと監視
-
-- 詳細な取引ログ
-- エラーログ
-- パフォーマンス追跡
-- データ品質監視
-- 取引履歴の自動検証
-
-## 設定オプション
-
-### リバランスモード設定
-
-#### 総資産価値ベースリバランス（推奨）
-```json
-{
-  "rebalancing_settings": {
-    "mode": "total_value",
-    "include_existing_positions": true,
-    "sell_existing_positions": true,
-    "min_trade_amount": 100,
-    "max_trade_amount": 10000,
-    "rebalance_threshold": 0.05
-  }
-}
-```
-
-#### 利用可能資金ベースリバランス（従来方式）
-```json
-{
-  "rebalancing_settings": {
-    "mode": "available_cash",
-    "include_existing_positions": false,
-    "sell_existing_positions": false,
-    "min_trade_amount": 100,
-    "max_trade_amount": 10000,
-    "rebalance_threshold": 0.05
-  }
-}
-```
-
-### webull_config_with_allocation.json
-
-```json
-{
-  "webull": {
-    "username": "your_username",
-    "password": "your_password", 
-    "device_id": "your_device_id",
-    "account_id": "your_account_id"
-  },
-  "dry_run": true,
-  "portfolio_config_file": "portfolio.csv",
-  "safety_margin": 0.0,
-  "max_retries": 3,
-  "retry_delay": 1
-}
-```
-
-### portfolio.csv
-
-```csv
-銘柄,配分(%)
-SYMBOL1,PERCENTAGE1
-SYMBOL2,PERCENTAGE2
-...
-```
-
-## トラブルシューティング
+## 🐛 トラブルシューティング
 
 ### よくある問題
 
-1. **API認証エラー**
-   - 設定ファイルの認証情報を確認
-   - WebullアカウントのAPIアクセス権限を確認
-   - アカウントIDが自動取得されているか確認
-
-2. **買付余力不足**
-   - アカウントの利用可能資金を確認
-   - ポートフォリオ配分の調整を検討
-
-3. **価格取得エラー**
-   - インターネット接続を確認
-   - シンボルの正確性を確認
-
-4. **アカウントID取得エラー**
-   - ユーザーID、パスワード、APIキーが正しいか確認
-   - Webullアプリでログインできるか確認
-   - 口座番号が正しいか確認
-
-5. **Docker実行エラー**
-   - Dockerがインストールされているか確認
-   - Dockerデーモンが起動しているか確認
-   - ポートが競合していないか確認
-
-6. **取引履歴データ品質エラー**
-   - `data/trades.csv`の構造を確認
-   - 日付フォーマットの統一性を確認
-   - 欠損値の処理状況を確認
-   - データ検証機能が正常に動作しているか確認
-
-7. **パフォーマンス分析エラー**
-   - 分析期間内に取引データが存在するか確認
-   - 取引履歴の日付フォーマットを確認
-   - 必要なデータフィールドが存在するか確認
-
-### ログの確認
-
-```bash
-# 最新のログを確認
-tail -f logs/webullbot.log
-
-# エラーログを確認
-grep "ERROR" logs/webullbot.log
-
-# Dockerログの確認
-docker logs <container_id>
-
-# 取引履歴の確認
-head -10 data/trades.csv
-
-# パフォーマンス分析結果の確認
-ls -la data/performance_analysis_*.json
-
-# 取引結果追跡データの確認
-ls -la data/*_trades_results_*.json
+#### 1. API認証エラー
+```
+エラー: app_keyまたはapp_secretが設定されていません
+解決策: webull_config_with_allocation.jsonの設定を確認
 ```
 
-### アカウント変更時の確認事項
+#### 2. アカウントIDエラー
+```
+エラー: アカウントIDの取得に失敗しました
+解決策: 設定ファイルのaccount_idを確認
+```
 
-1. **設定ファイルの更新**:
-   - `app_key`: 新しいAPIキー
-   - `app_secret`: 新しいAPIシークレット
-   - その他の認証情報は自動取得されるため設定不要
+#### 3. 買付余力不足エラー
+```
+エラー: ORDER_BUYING_POWER_NOT_ENOUGH
+解決策: 買付余力を確認し、取引金額を調整
+```
 
-2. **実行確認**:
-   - プログラムが正常に起動するか確認
-   - アカウントIDが自動取得されるか確認
-   - 口座残高が正しく取得されるか確認
+#### 4. API互換性エラー
+```
+エラー: 'AccountV2' object has no attribute 'get_positions'
+解決策: Webull SDKのバージョンを確認
+```
 
+### ログの確認
+```bash
+# 最新のログを確認
+tail -f logs/webull_bot_$(date +%Y%m%d).log
+```
 
+## 🔄 更新履歴
 
-## セキュリティ
+### v2.0.0 (2025-08-01)
+- 統合版リリース
+- 全ての機能を単一ファイルに統合
+- サンプルコード準拠の買い付け機能
+- 成功コード準拠の売却機能
+- 大幅なファイル構成の簡素化
 
-- API認証情報は設定ファイルに保存
-- 本番環境では環境変数の使用を推奨
-- 定期的なAPIキーの更新を推奨
-- **重要**: 個人情報を含むファイルは`.gitignore`で除外されています
-  - `webull_config_with_allocation.json`: 実際の設定ファイル
-  - `webullkey.txt`, `webullkey2.txt`: 個人のAPIキー情報
-  - `logs/`: 実行ログ（個人情報が含まれる可能性）
-  - `data/trades.csv`: 取引履歴（個人の取引情報）
-  - `data/performance_analysis_*.json`: パフォーマンス分析結果
-  - `data/*_trades_results_*.json`: 取引結果追跡データ
-- **初回セットアップ**: `webull_config_sample.json`をコピーして使用してください
+### v1.x.x (以前のバージョン)
+- 分散ファイル構成
+- 個別機能別スクリプト
+- 複雑なAPI呼び出し
 
-### セキュリティ
+## 📞 サポート
 
-**必要な認証情報：**
-- **API Key**: Webull開発者ポータルから取得
-- **API Secret**: Webull開発者ポータルから取得
+### 問題報告
+- GitHub Issuesで問題を報告してください
+- ログファイルとエラーメッセージを添付してください
 
-**自動取得される情報：**
-- ユーザーID・パスワード（Webullアプリのログイン情報）
-- 口座番号
-- その他の認証情報（すべて自動取得）
+### 機能要望
+- 新機能の要望はGitHub Issuesで提案してください
+- 具体的なユースケースを説明してください
 
-**セキュリティ上の利点：**
-- 必要な認証情報が最小限（2つのみ）
-- 個人のログイン情報を設定ファイルに保存する必要がない
-- アカウント変更時の設定が大幅に簡素化
+## 📄 ライセンス
 
-## 免責事項
+このプロジェクトはMITライセンスの下で公開されています。
 
-このボットは教育目的で作成されています。実際の取引には十分な注意を払い、リスクを理解した上で使用してください。作者は取引結果について一切の責任を負いません。
+## ⚖️ 免責事項
 
-## データ品質管理
+このソフトウェアは教育・研究目的で提供されています。実際の取引での使用は自己責任で行ってください。作者は取引結果について一切の責任を負いません。
 
-### 取引履歴の自動検証
+---
 
-システムは取引履歴の保存時に自動的にデータ品質を検証し、以下の処理を行います：
-
-- **フィールド数の統一**: 全取引レコードのフィールド数を統一
-- **日付フォーマットの標準化**: 複数の日付フォーマットに対応
-- **数値データの型変換**: 適切なデータ型への自動変換
-- **欠損値の処理**: 空の値を適切なデフォルト値で補完
-- **データの正規化**: action、symbolフィールドの統一
-
-### パフォーマンス分析機能
-
-- **取引パフォーマンス分析**: 成功率、取引サイズ、取引頻度の分析
-- **ポートフォリオパフォーマンス分析**: 買い/売りボリューム、回転率の分析
-- **リスク指標分析**: ボラティリティ、最大ドローダウン、シャープレシオの計算
-- **実行品質分析**: 実行速度、価格精度、約定品質の評価
-- **コスト分析**: 手数料、スリッページ、コスト効率の分析
-- **ベンチマーク比較**: SPY等との相対パフォーマンス分析
-- **改善提案の自動生成**: データ駆動の改善提案
-
-### 取引結果追跡機能
-
-- **期間指定追跡**: 任意の期間での取引結果追跡
-- **特定取引追跡**: 取引ID指定での詳細追跡
-- **セッション追跡**: セッション全体の結果追跡
-- **トレンド分析**: 実行品質と成功率のトレンド分析
-- **改善提案**: 取引結果に基づく改善提案の生成
-
-## ライセンス
-
-このプロジェクトは個人使用目的で作成されています。
-
-## サポート
-
-問題や質問がある場合は、GitHubのIssuesページで報告してください。
-
-## 更新履歴
-
-- v1.0.0: 初期リリース
-- v1.1.0: 安全機能の追加
-- v1.2.0: クロスプラットフォーム対応
-- v1.3.0: ログ機能の改善
-- v1.4.0: Docker対応とアカウントID自動取得機能の追加
-  - Dockerコンテナでの実行に対応
-  - アカウントID、Subscription ID、User IDの自動取得機能
-  - 新しいアカウントへの簡単な切り替え機能
-  - 設定ファイルの自動更新機能
-  - エラーハンドリングの改善
-- v1.5.0: 取引履歴の完全化とデータ品質改善
-  - CSVファイル構造の修正とフィールド数の統一
-  - 日付フォーマットの標準化（複数フォーマット対応）
-  - 欠損値の適切な処理とデータ型の統一
-  - データ検証機能の実装（`_validate_trade_data`メソッド）
-  - 取引履歴保存機能の改善
-  - パフォーマンス分析機能の動作確認
-  - 取引結果追跡機能の動作確認
-  - エラーハンドリングの強化 
+**WebullBot Unified** - シンプルで強力なポートフォリオリバランサー 

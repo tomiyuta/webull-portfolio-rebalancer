@@ -4,9 +4,9 @@ webull-python-sdk-trade==0.1.11
 webull-python-sdk-core==0.1.11
 webull-python-sdk-trade-events-core==0.1.11
 webull-python-sdk-mdata==0.1.11
+webull-python-sdk-quotes-core==0.1.11
 pandas
 numpy
 requests
 urllib3
 yfinance
-webull==0.6.0 

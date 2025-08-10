@@ -13,11 +13,26 @@ else
     echo "仮想環境が見つかりません。通常のPythonを使用します。"
 fi
 
-# 依存関係の確認
+# 依存関係の確認（公式OpenAPI SDK群）
 echo "依存関係を確認中..."
-python3 -c "import webull" 2>/dev/null
+python3 - <<'PY'
+import importlib, sys
+mods = [
+    'webullsdkcore',
+    'webullsdktrade',
+    'webullsdkmdata',
+]
+missing = []
+for m in mods:
+    try:
+        importlib.import_module(m)
+    except Exception:
+        missing.append(m)
+if missing:
+    sys.exit(1)
+PY
 if [ $? -ne 0 ]; then
-    echo "Webullライブラリがインストールされていません。インストール中..."
+    echo "SDKが見つかりません。インストール中..."
     pip3 install -r requirements.txt
 fi
 
@@ -26,7 +41,7 @@ echo "ドライランでリバランシングを開始します..."
 echo
 
 # ドライランでリバランシングの実行
-python3 run_rebalancing.py
+python3 webull_bot_unified.py
 
 echo
 echo "ドライランが完了しました。"
