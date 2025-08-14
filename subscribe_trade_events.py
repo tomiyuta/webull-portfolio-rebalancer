@@ -12,6 +12,7 @@ import signal
 import sys
 import time
 from datetime import datetime
+from dotenv import load_dotenv
 
 from webullsdkcore.common.region import Region
 from webullsdktradeeventscore.events_client import EventsClient
@@ -40,10 +41,11 @@ class TradeEventsSubscriber:
     def __init__(self, config_file: str = 'webull_config_with_allocation.json') -> None:
         self.logger = logging.getLogger(__name__)
         self.config = self._load_config(config_file)
+        load_dotenv()
 
-        app_key = self.config.get('app_key')
-        app_secret = self.config.get('app_secret')
-        self.account_id = self.config.get('account_id')
+        app_key = os.getenv('WEBULL_APP_KEY') or self.config.get('app_key')
+        app_secret = os.getenv('WEBULL_APP_SECRET') or self.config.get('app_secret')
+        self.account_id = os.getenv('WEBULL_ACCOUNT_ID') or self.config.get('account_id')
         if not app_key or not app_secret or not self.account_id:
             raise ValueError('app_key, app_secret, account_id を設定してください')
 

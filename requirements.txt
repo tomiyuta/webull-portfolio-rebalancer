@@ -11,3 +11,4 @@ requests
 urllib3
 yfinance
 streamlit
+python-dotenv>=1.0.0

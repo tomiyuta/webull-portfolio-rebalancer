@@ -131,6 +131,19 @@ docker run --rm -v ${PWD}:/app webull-rebalancer python3 webull_bot_unified.py
 docker run --rm -v ${PWD}:/app webull-rebalancer python3 webull_bot_unified.py
 ```
 
+## 🔐 認証情報の設定（推奨）
+
+環境変数（または`.env`ファイル）で認証情報を管理します。環境変数が設定されている場合は、設定ファイルよりも優先して使用されます。
+
+```
+# .env の例（リポジトリにコミットしないでください）
+WEBULL_APP_KEY=your_app_key
+WEBULL_APP_SECRET=your_app_secret
+WEBULL_ACCOUNT_ID=your_account_id
+```
+
+アプリは`python-dotenv`で`.env`を自動読込します。`webull_config_with_allocation.json`の値はバックアップ/開発用として利用されます。
+
 ### 機能別実行
 
 #### アカウント情報の表示

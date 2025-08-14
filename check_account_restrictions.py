@@ -10,6 +10,7 @@ import logging
 import decimal
 import os
 from datetime import datetime
+from dotenv import load_dotenv
 from webullsdktrade.api import API
 from webullsdkcore.client import ApiClient
 from webullsdkcore.common.region import Region
@@ -40,8 +41,9 @@ class AccountRestrictionsChecker:
         """アカウント制限確認の初期化"""
         self.logger = logging.getLogger(__name__)
         self.config = self.load_config()
+        load_dotenv()
         self.api = self.initialize_api()
-        self.account_id = self.config.get('account_id', '')
+        self.account_id = os.getenv('WEBULL_ACCOUNT_ID') or self.config.get('account_id', '')
         
         self.logger.info("アカウント制限確認初期化完了")
         self.logger.info(f"Account ID: {self.account_id}")
@@ -60,8 +62,9 @@ class AccountRestrictionsChecker:
     def initialize_api(self):
         """API初期化"""
         try:
-            app_key = self.config.get('app_key')
-            app_secret = self.config.get('app_secret')
+            # 環境変数優先
+            app_key = os.getenv('WEBULL_APP_KEY') or self.config.get('app_key')
+            app_secret = os.getenv('WEBULL_APP_SECRET') or self.config.get('app_secret')
             
             if not app_key or not app_secret:
                 raise ValueError("app_keyまたはapp_secretが設定されていません")

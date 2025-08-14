@@ -17,6 +17,7 @@ import os
 import sys
 import csv
 import random
+from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from webullsdktrade.api import API
 from webullsdkcore.client import ApiClient
@@ -46,6 +47,7 @@ def setup_logging():
     logging.getLogger('webullsdkcore').setLevel(logging.WARNING)
 
 setup_logging()
+load_dotenv()
 
 class WebullBotUnified:
     def __init__(self, config_file='webull_config_with_allocation.json', dry_run=None):
@@ -57,7 +59,8 @@ class WebullBotUnified:
             self.config['dry_run'] = dry_run
         
         self.api = self.initialize_api()
-        self.account_id = self.config.get('account_id', '')
+        # 環境変数優先でaccount_idを取得
+        self.account_id = os.getenv('WEBULL_ACCOUNT_ID') or self.config.get('account_id', '')
         self.dry_run = self.config.get('dry_run', True)
         
         # キャッシュの初期化
@@ -91,6 +94,10 @@ class WebullBotUnified:
         md_settings = self.config.get('market_data_settings', {}) or {}
         return md_settings.get(key, default_value)
 
+    def _get_trading_setting(self, key: str, default_value):
+        trading_settings = self.config.get('trading_settings', {}) or {}
+        return trading_settings.get(key, default_value)
+
     def call_with_retry(self, func, *, operation_name: str = "api_call", max_retries: int = None, base_delay: float = None):
         """HTTPレスポンスベースのリトライ（429/5xx）。Retry-Afterを尊重し指数バックオフ+ジッタ。
 
@@ -106,9 +113,23 @@ class WebullBotUnified:
             response = None
             error = None
             try:
+                # レート制限スロットリング
+                rate_limit_delay = float(self._get_api_setting('rate_limit_delay', 0.0))
+                if rate_limit_delay > 0.0:
+                    last_called_at = self._last_api_call.get(operation_name)
+                    if last_called_at is not None:
+                        elapsed = time.time() - last_called_at
+                        if elapsed < rate_limit_delay:
+                            sleep_sec = rate_limit_delay - elapsed
+                            self.logger.debug(f"{operation_name} スロットリング待機 {sleep_sec:.3f}s")
+                            time.sleep(sleep_sec)
+
                 response = func()
             except Exception as e:
                 error = e
+            finally:
+                # 最終呼び出し時刻を更新
+                self._last_api_call[operation_name] = time.time()
 
             if error is None and response is not None and response.status_code not in retry_status_codes:
                 return response
@@ -180,8 +201,9 @@ class WebullBotUnified:
     def initialize_api(self):
         """Webull APIを初期化"""
         try:
-            app_key = self.config.get('app_key')
-            app_secret = self.config.get('app_secret')
+            # 環境変数優先
+            app_key = os.getenv('WEBULL_APP_KEY') or self.config.get('app_key')
+            app_secret = os.getenv('WEBULL_APP_SECRET') or self.config.get('app_secret')
             
             if not app_key or not app_secret:
                 raise ValueError("app_keyまたはapp_secretが設定されていません")
@@ -582,8 +604,7 @@ class WebullBotUnified:
                 self.logger.error(f"{symbol} の価格取得に失敗")
                 return False
             
-            # 銘柄タイプ判定（ETF/EQUITY）
-            # v2ではETFでもEQUITY指定で通るケースが多いため統一
+            # 銘柄タイプはEQUITYで統一（公式サンプルに準拠）
             instrument_type = "EQUITY"
 
             # 指値価格を設定
@@ -591,6 +612,9 @@ class WebullBotUnified:
                 limit_price = current_price * 1.005  # 0.5%高め（より保守的）
 
             # --- v2 公式仕様に準拠した注文パラメータを作成 -----------------------
+            # Y/N 切替（configのallow_extendedで制御）
+            session_pref = "Y" if bool(self._get_trading_setting('allow_extended', False)) else "N"
+
             order_body = {
                 "client_order_id": uuid.uuid4().hex,
                 "symbol": symbol,
@@ -598,9 +622,9 @@ class WebullBotUnified:
                 "market": "US",
                 "side": "BUY",
                 "order_type": "LIMIT",
-                "qty": str(int(quantity)),
+                "quantity": str(int(quantity)),
                 "limit_price": f"{limit_price:.2f}",
-                "support_trading_session": "N",
+                "support_trading_session": session_pref,
                 "time_in_force": "DAY",
                 "entrust_type": "QTY",
                 "account_tax_type": "SPECIFIC"
@@ -624,7 +648,23 @@ class WebullBotUnified:
                     self.logger.error(f"Preview失敗。詳細: {detail}")
                 except Exception:
                     self.logger.error("Preview失敗。詳細は不明")
-                return False
+                # フォールバック（指値の微調整のみ）
+                try:
+                    alt = dict(order_body)
+                    # 通常時間に固定してプレビュー再試行
+                    alt["support_trading_session"] = "N"
+                    # 価格をもう少し積極的に
+                    alt["limit_price"] = f"{current_price * 1.01:.2f}"
+                    self.logger.info(f"フォールバックPreview試行: session={alt['support_trading_session']} limit_price={alt['limit_price']}")
+                    preview_alt = self.call_with_retry(
+                        lambda: self.api.order_v2.preview_order(self.account_id, alt),
+                        operation_name="preview_order"
+                    )
+                    if preview_alt is None or preview_alt.status_code != 200:
+                        return False
+                    order_body = alt
+                except Exception:
+                    return False
 
             self.logger.info(f"購入注文発注: {symbol} {quantity}株 @ ${limit_price:.2f}")
 
@@ -640,17 +680,28 @@ class WebullBotUnified:
                 self.logger.info(f"✅ 購入注文成功")
                 
                 # レスポンス形式の確認と処理
-                if 'client_order_id' in order_data:
-                    client_order_id = order_data['client_order_id']
+                client_order_id = None
+                if isinstance(order_data, dict):
+                    client_order_id = order_data.get('client_order_id')
+                    if client_order_id is None and isinstance(order_data.get('data'), dict):
+                        client_order_id = order_data['data'].get('client_order_id')
+                if client_order_id:
                     self.logger.info(f"注文ID: {client_order_id}")
-                    return True
-                elif 'data' in order_data and 'client_order_id' in order_data['data']:
-                    client_order_id = order_data['data']['client_order_id']
-                    self.logger.info(f"注文ID: {client_order_id}")
-                    return True
                 else:
                     self.logger.warning("レスポンスにclient_order_idが含まれていませんが、注文は成功しています")
-                    return True
+
+                # 取引ログ保存
+                self._append_trade_log('BUY', symbol, int(quantity), client_order_id, order_data)
+
+                # 完了待機（任意）
+                timeout_sec = int(self._get_trading_setting('order_timeout', 0))
+                if timeout_sec and client_order_id and not self.dry_run:
+                    completed, final_status = self._wait_for_order_completion(client_order_id, timeout_sec)
+                    if completed:
+                        self.logger.info(f"注文完了: status={final_status}")
+                    else:
+                        self.logger.warning(f"注文未完了（タイムアウト）: status={final_status}")
+                return True
             else:
                 # 追加のエラーハンドリング
                 if response is None:
@@ -678,7 +729,27 @@ class WebullBotUnified:
             # 銘柄タイプ判定（ETF/EQUITY）
             instrument_type = "EQUITY"
 
+            # 現在保有数を確認し、売却数量を上限にキャップ（ショート防止）
+            try:
+                positions = self.get_current_positions()
+                held_qty = 0
+                for p in positions:
+                    if p.get('symbol') == symbol:
+                        held_qty = int(p.get('quantity') or 0)
+                        break
+                if quantity > held_qty:
+                    self.logger.warning(f"売却数量を保有数に調整: requested={quantity} held={held_qty}")
+                    quantity = held_qty
+                if quantity <= 0:
+                    self.logger.info(f"売却スキップ（保有なし）: {symbol}")
+                    return True
+            except Exception as e:
+                self.logger.warning(f"保有数確認に失敗（継続）: {e}")
+
             # 成功しているコードに完全準拠した注文パラメータを作成
+            # Y/N 切替（configのallow_extendedで制御）
+            session_pref = "Y" if bool(self._get_trading_setting('allow_extended', False)) else "N"
+
             order = {
                 "client_order_id": uuid.uuid4().hex,
                 "symbol": symbol,
@@ -686,11 +757,11 @@ class WebullBotUnified:
                 "market": "US",
                 "side": "SELL",
                 "order_type": "MARKET",
-                "qty": str(int(quantity)),
-                "support_trading_session": "N",          # Extended 無し
+                "quantity": str(int(quantity)),
+                "support_trading_session": session_pref,
                 "time_in_force": "DAY",
                 "entrust_type": "QTY",
-                "account_tax_type": "SPECIFIC"           # Cash 口座推奨値
+                "account_tax_type": "GENERAL"
             }
 
             # 417対策: instrument_idを併記
@@ -706,10 +777,30 @@ class WebullBotUnified:
                     lambda: self.api.order_v2.preview_order(self.account_id, order),
                     operation_name="preview_order"
                 )
+                ok = preview_response is not None and getattr(preview_response, 'status_code', None) == 200
+                if not ok:
+                    # プレビュー失敗時フォールバック（通常時間+LIMIT）。SPECIFICはlot指定が必要だが、APIが省略可の口座もあるためそのまま試行。
+                    alt = dict(order)
+                    alt["support_trading_session"] = "N"
+                    try:
+                        # LIMITに切替: 直近価格×0.97 で成立しやすい価格に設定
+                        current_price = self.get_stock_price(symbol)
+                        if current_price > 0:
+                            alt["order_type"] = "LIMIT"
+                            alt["limit_price"] = f"{current_price * 0.97:.2f}"
+                    except Exception:
+                        pass
+                    self.logger.info(f"フォールバック売却Preview: session={alt['support_trading_session']} order_type={alt['order_type']} limit_price={alt.get('limit_price','')}")
+                    preview_alt = self.call_with_retry(
+                        lambda: self.api.order_v2.preview_order(self.account_id, alt),
+                        operation_name="preview_order"
+                    )
+                    if preview_alt is not None and getattr(preview_alt, 'status_code', None) == 200:
+                        order = alt
                 try:
-                    self.logger.info(f"Preview OK: {preview_response.status_code} {preview_response.json()}")
+                    self.logger.info(f"Preview: {getattr(preview_response, 'status_code', 'N/A')} {getattr(preview_response, 'text', '')}")
                 except Exception:
-                    self.logger.info(f"Preview OK: {getattr(preview_response, 'status_code', 'N/A')} {getattr(preview_response, 'text', '')}")
+                    pass
             except Exception as e:
                 self.logger.warning(f"⚠️ 売却プレビューエラー: {e}")
             
@@ -726,6 +817,26 @@ class WebullBotUnified:
             
             if response is not None and response.status_code == 200:
                 self.logger.info(f"✅ 売却注文成功")
+                # client_order_id 抽出
+                client_order_id = None
+                try:
+                    data = response.json()
+                    if isinstance(data, dict):
+                        client_order_id = data.get('client_order_id') or (data.get('data') or {}).get('client_order_id')
+                except Exception:
+                    pass
+
+                # 取引ログ保存
+                self._append_trade_log('SELL', symbol, int(quantity), client_order_id, data if 'data' in locals() else None)
+
+                # 完了待機（任意）
+                timeout_sec = int(self._get_trading_setting('order_timeout', 0))
+                if timeout_sec and client_order_id and not self.dry_run:
+                    completed, final_status = self._wait_for_order_completion(client_order_id, timeout_sec)
+                    if completed:
+                        self.logger.info(f"注文完了: status={final_status}")
+                    else:
+                        self.logger.warning(f"注文未完了（タイムアウト）: status={final_status}")
                 return True
             else:
                 if response is None:
@@ -985,6 +1096,88 @@ class WebullBotUnified:
                 
         except Exception as e:
             self.logger.error(f"投資分析表示エラー: {e}")
+
+    # ==================== 注文追跡・記録ユーティリティ ====================
+
+    def _append_trade_log(self, action: str, symbol: str, quantity: int, client_order_id: str, response_json):
+        """シンプルな取引ログをCSVに追記"""
+        try:
+            data_dir = 'data'
+            if not os.path.exists(data_dir):
+                os.makedirs(data_dir)
+            csv_path = os.path.join(data_dir, 'trades.csv')
+            fieldnames = ['timestamp', 'action', 'symbol', 'quantity', 'client_order_id', 'response']
+            exists = os.path.exists(csv_path)
+            with open(csv_path, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                if not exists:
+                    writer.writeheader()
+                writer.writerow({
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'action': action,
+                    'symbol': symbol,
+                    'quantity': quantity,
+                    'client_order_id': client_order_id or '',
+                    'response': json.dumps(response_json, ensure_ascii=False) if response_json is not None else ''
+                })
+        except Exception as e:
+            self.logger.warning(f"取引ログ保存に失敗: {e}")
+
+    def _wait_for_order_completion(self, client_order_id: str, timeout_seconds: int):
+        """注文完了を簡易ポーリングで待機。SDKの利用可能メソッドを順次試行。"""
+        end_time = time.time() + max(0, int(timeout_seconds))
+
+        def try_fetch_status():
+            candidates = [
+                ('order_v2', 'get_order_detail_by_client_order_id', (self.account_id, client_order_id)),
+                ('order_v2', 'get_order_by_client_order_id', (self.account_id, client_order_id)),
+                ('order_v2', 'get_active_orders', (self.account_id,)),
+                ('order_v2', 'get_orders', (self.account_id,)),
+            ]
+            for client_name, method_name, args in candidates:
+                client = getattr(self.api, client_name, None)
+                if client is None or not hasattr(client, method_name):
+                    continue
+                try:
+                    res = self.call_with_retry(lambda: getattr(client, method_name)(*args), operation_name=f"{client_name}.{method_name}")
+                    if res is None or getattr(res, 'status_code', None) != 200:
+                        continue
+                    data = res.json()
+                    # リスト応答なら該当注文を探索
+                    target = None
+                    if isinstance(data, list):
+                        for item in data:
+                            cid = (item.get('client_order_id') if isinstance(item, dict) else None)
+                            if cid == client_order_id:
+                                target = item
+                                break
+                    elif isinstance(data, dict):
+                        target = data
+                    if not target:
+                        continue
+                    # ステータス抽出
+                    status = None
+                    for key in ('status', 'order_status', 'state', 'order_state'):
+                        val = target.get(key) if isinstance(target, dict) else None
+                        if isinstance(val, str) and val:
+                            status = val
+                            break
+                    return status
+                except Exception:
+                    continue
+            return None
+
+        terminal_statuses = {'FILLED', 'Filled', 'EXECUTED', 'Canceled', 'CANCELED', 'REJECTED', 'Rejected', 'EXPIRED'}
+
+        last_status = None
+        while time.time() < end_time:
+            status = try_fetch_status()
+            if status:
+                last_status = status
+                if status in terminal_statuses:
+                    return True, status
+            time.sleep(2)
+        return False, last_status or 'UNKNOWN'
 
 # ==================== メイン実行関数 ====================
 

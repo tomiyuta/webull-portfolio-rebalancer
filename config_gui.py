@@ -78,3 +78,5 @@ if st.button('保存'):
     st.success('保存しました')
 
 st.info('起動: streamlit run config_gui.py')
+
+
